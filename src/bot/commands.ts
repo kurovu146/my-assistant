@@ -21,6 +21,8 @@ import {
   addMonitoredUrl,
   removeMonitoredUrl,
   getUserMonitoredUrls,
+  getUserFacts,
+  countFacts,
 } from "../storage/db.ts";
 import { timeAgo, TOOL_ICONS } from "./formatter.ts";
 import { config } from "../config.ts";
@@ -53,6 +55,7 @@ export async function handleStart(ctx: Context): Promise<void> {
       `/resume — Tiếp tục phiên cũ\n` +
       `/stop — Dừng query đang chạy\n` +
       `/status — Xem trạng thái\n` +
+      `/memory — Xem bộ nhớ dài hạn\n` +
       `/reload — Reload skills\n\n` +
       `Gửi tin nhắn bất kỳ để bắt đầu! 🚀`,
   );
@@ -298,6 +301,49 @@ export async function handleMonitors(ctx: Context): Promise<void> {
     .join("\n\n");
 
   await ctx.reply(`📡 Đang monitor ${urls.length} URLs:\n\n${list}`);
+}
+
+/**
+ * /memory — Xem memory stats và danh sách facts đã ghi nhớ
+ */
+export async function handleMemory(ctx: Context): Promise<void> {
+  const userId = ctx.from?.id;
+  if (userId === undefined) return;
+
+  const total = countFacts(userId);
+  const facts = getUserFacts(userId, 20);
+
+  if (total === 0) {
+    await ctx.reply(
+      "🧠 Memory: chưa có gì.\n\n" +
+        "Em sẽ tự động ghi nhớ thông tin quan trọng từ các cuộc hội thoại, " +
+        "hoặc anh có thể bảo em nhớ trực tiếp.",
+    );
+    return;
+  }
+
+  // Group by category
+  const grouped = new Map<string, typeof facts>();
+  for (const f of facts) {
+    const list = grouped.get(f.category) || [];
+    list.push(f);
+    grouped.set(f.category, list);
+  }
+
+  let text = `🧠 Memory: ${total} facts\n`;
+  for (const [category, categoryFacts] of grouped) {
+    text += `\n📁 ${category} (${categoryFacts.length})\n`;
+    for (const f of categoryFacts) {
+      const date = new Date(f.updatedAt).toLocaleDateString("vi-VN");
+      text += `  • ${f.fact} (${date})\n`;
+    }
+  }
+
+  if (total > 20) {
+    text += `\n... và ${total - 20} facts khác`;
+  }
+
+  await ctx.reply(text);
 }
 
 /**

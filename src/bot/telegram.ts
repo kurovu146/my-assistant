@@ -21,6 +21,7 @@ import {
 } from "../storage/db.ts";
 import { splitMessage, formatToolsUsed, TOOL_ICONS } from "./formatter.ts";
 import { sanitizeResponse } from "./content-filter.ts";
+import { extractFacts } from "../services/memory.ts";
 import { authMiddleware, rateLimitMiddleware } from "./middleware.ts";
 import {
   handleStart,
@@ -33,6 +34,7 @@ import {
   handleMonitor,
   handleUnmonitor,
   handleMonitors,
+  handleMemory,
   activeQueries,
 } from "./commands.ts";
 
@@ -86,6 +88,7 @@ export function createBot(): Bot {
   bot.command("monitor", handleMonitor);
   bot.command("unmonitor", handleUnmonitor);
   bot.command("monitors", handleMonitors);
+  bot.command("memory", handleMemory);
 
   bot.callbackQuery(/^resume:/, handleResumeCallback);
 
@@ -241,6 +244,7 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
         }
       },
       controller.signal,
+      userId,
     );
 
     // Clear typing
@@ -305,6 +309,11 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
     // Gửi phần còn lại
     for (let i = 1; i < messages.length; i++) {
       await safeSendMessage(ctx, messages[i]!);
+    }
+
+    // Tier 1: Extract facts từ conversation (async, không block UX)
+    if (!response.error) {
+      extractFacts(userId, prompt, response.text).catch(() => {});
     }
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);

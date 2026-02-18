@@ -15,6 +15,8 @@ import { createBot } from "./bot/telegram.ts";
 import { config } from "./config.ts";
 import { checkAuth } from "./agent/claude.ts";
 import { startWebMonitor, stopWebMonitor } from "./services/web-monitor.ts";
+import { startMemoryConsolidation, stopMemoryConsolidation } from "./services/memory-consolidation.ts";
+import { startNewsDigest, stopNewsDigest } from "./services/news-digest.ts";
 import type { Bot } from "grammy";
 
 // Xóa CLAUDECODE để tránh "nested session" error khi chạy qua PM2
@@ -63,6 +65,7 @@ async function main() {
     { command: "status", description: "Xem trạng thái & thống kê" },
     { command: "stop", description: "Dừng query đang chạy" },
     { command: "reload", description: "Reload skills" },
+    { command: "memory", description: "Xem bộ nhớ dài hạn" },
     { command: "monitor", description: "Theo dõi webpage thay đổi" },
     { command: "unmonitor", description: "Bỏ theo dõi webpage" },
     { command: "monitors", description: "Danh sách đang theo dõi" },
@@ -73,17 +76,25 @@ async function main() {
   //    deleteWebhook ép Telegram reset polling state → instance mới poll clean.
   await bot.api.deleteWebhook({ drop_pending_updates: true });
 
-  // 7. Start Web Monitor cron
-  //    Gửi notification qua chat đầu tiên trong allowedUsers
+  // 7. Start cron services
   if (config.allowedUsers.length > 0) {
     const chatId = config.allowedUsers[0]!;
-    startWebMonitor(async (message) => {
+    const sendTelegram = async (message: string) => {
       try {
         await bot!.api.sendMessage(chatId, message);
       } catch (err) {
-        console.error("❌ Monitor notify error:", err);
+        console.error("❌ Notify error:", err);
       }
-    });
+    };
+
+    // Web Monitor — check mỗi 30 phút
+    startWebMonitor(sendTelegram);
+
+    // Memory Consolidation — gộp facts mỗi 24h
+    startMemoryConsolidation(config.allowedUsers);
+
+    // News Digest — gửi tin tức mỗi sáng 8h VN
+    startNewsDigest(sendTelegram);
   }
 
   console.log("✅ Bot đã sẵn sàng! Đang lắng nghe tin nhắn...\n");
@@ -103,6 +114,8 @@ async function main() {
 async function shutdown() {
   console.log("\n👋 Đang tắt bot...");
   stopWebMonitor();
+  stopMemoryConsolidation();
+  stopNewsDigest();
   if (bot) {
     await bot.stop();
   }

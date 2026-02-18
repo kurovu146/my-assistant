@@ -22,6 +22,8 @@ import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { config } from "../config.ts";
 import { buildSystemPrompt } from "./skills.ts";
 import { createGmailMcpServer } from "../services/gmail.ts";
+import { createMemoryMcpServer } from "../services/memory-mcp.ts";
+import { buildMemoryContext } from "../services/memory.ts";
 
 // Cache system prompt — load 1 lần khi bot khởi động
 let cachedSystemPrompt: string | null = null;
@@ -190,6 +192,7 @@ export async function askClaude(
   sessionId?: string,
   onProgress?: OnProgressCallback,
   abortSignal?: AbortSignal,
+  userId?: number,
 ): Promise<AgentResponse> {
   const toolsUsed: string[] = [];
   const textParts: string[] = [];
@@ -199,10 +202,22 @@ export async function askClaude(
     // Load system prompt (CLAUDE.md + skills/)
     const systemPrompt = await getSystemPrompt();
 
+    // Inject memory context vào prompt (Tier 1: passive recall)
+    let enrichedPrompt = prompt;
+    if (userId) {
+      const memoryContext = buildMemoryContext(userId);
+      if (memoryContext) {
+        enrichedPrompt = prompt + memoryContext;
+      }
+    }
+
+    // Memory MCP server — tạo per-query với userId bind sẵn (Tier 2: active tools)
+    const memoryMcp = userId ? createMemoryMcpServer(userId) : null;
+
     // Tạo query — SDK sẽ chạy agent loop tự động
     // Claude sẽ tự quyết định dùng tools nào dựa trên prompt
     const stream = query({
-      prompt,
+      prompt: enrichedPrompt,
       options: {
         // Model — Max plan dùng được tất cả
         model: config.claudeModel,
@@ -224,8 +239,11 @@ export async function askClaude(
         // CLI path (tùy chọn)
         ...(config.cliPath ? { pathToClaudeCodeExecutable: config.cliPath } : {}),
 
-        // MCP servers — Gmail integration (nếu có credentials)
-        ...(gmailMcp ? { mcpServers: { gmail: gmailMcp } } : {}),
+        // MCP servers — Gmail + Memory
+        mcpServers: {
+          ...(gmailMcp ? { gmail: gmailMcp } : {}),
+          ...(memoryMcp ? { memory: memoryMcp } : {}),
+        },
 
         // Tools Claude được phép dùng
         // Claude TỰ QUYẾT ĐỊNH dùng tool nào, bạn chỉ cho phép
@@ -238,6 +256,7 @@ export async function askClaude(
           "WebSearch", // Google search
           "WebFetch", // Lấy nội dung URL
           ...(gmailMcp ? ["mcp__gmail__*"] : []), // Gmail tools
+          ...(memoryMcp ? ["mcp__memory__*"] : []), // Memory tools
         ],
 
         // Bỏ qua permission prompts

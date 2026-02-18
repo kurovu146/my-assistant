@@ -84,6 +84,222 @@ db.run(`
   )
 `);
 
+// Bảng memory_facts: lưu facts extracted từ conversations
+db.run(`
+  CREATE TABLE IF NOT EXISTS memory_facts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    fact TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'general',
+    source TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    last_accessed_at INTEGER NOT NULL DEFAULT 0,
+    access_count INTEGER NOT NULL DEFAULT 0
+  )
+`);
+
+db.run(`CREATE INDEX IF NOT EXISTS idx_memory_facts_user ON memory_facts (user_id, category)`);
+
+// Migrate: thêm cột last_accessed_at, access_count nếu chưa có
+try {
+  db.run(`ALTER TABLE memory_facts ADD COLUMN last_accessed_at INTEGER NOT NULL DEFAULT 0`);
+} catch (_) { /* column already exists */ }
+try {
+  db.run(`ALTER TABLE memory_facts ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0`);
+} catch (_) { /* column already exists */ }
+
+// FTS5 virtual table cho full-text search trên facts
+db.run(`
+  CREATE VIRTUAL TABLE IF NOT EXISTS memory_facts_fts USING fts5(
+    fact, category,
+    content='memory_facts',
+    content_rowid='id'
+  )
+`);
+
+// Triggers tự đồng bộ FTS5 khi INSERT/UPDATE/DELETE
+db.run(`
+  CREATE TRIGGER IF NOT EXISTS memory_facts_ai AFTER INSERT ON memory_facts BEGIN
+    INSERT INTO memory_facts_fts(rowid, fact, category)
+    VALUES (new.id, new.fact, new.category);
+  END
+`);
+db.run(`
+  CREATE TRIGGER IF NOT EXISTS memory_facts_ad AFTER DELETE ON memory_facts BEGIN
+    INSERT INTO memory_facts_fts(memory_facts_fts, rowid, fact, category)
+    VALUES ('delete', old.id, old.fact, old.category);
+  END
+`);
+db.run(`
+  CREATE TRIGGER IF NOT EXISTS memory_facts_au AFTER UPDATE ON memory_facts BEGIN
+    INSERT INTO memory_facts_fts(memory_facts_fts, rowid, fact, category)
+    VALUES ('delete', old.id, old.fact, old.category);
+    INSERT INTO memory_facts_fts(rowid, fact, category)
+    VALUES (new.id, new.fact, new.category);
+  END
+`);
+
+// Rebuild FTS5 index — đồng bộ data cũ (chạy 1 lần, nhanh với vài trăm rows)
+db.run(`INSERT OR IGNORE INTO memory_facts_fts(memory_facts_fts) VALUES('rebuild')`);
+
+// --- Memory Operations ---
+
+export interface MemoryFact {
+  id: number;
+  userId: number;
+  fact: string;
+  category: string;
+  source: string;
+  createdAt: number;
+  updatedAt: number;
+  lastAccessedAt: number;
+  accessCount: number;
+}
+
+/**
+ * Lưu fact mới vào memory.
+ */
+export function saveFact(userId: number, fact: string, category: string = "general", source: string = ""): MemoryFact {
+  const now = Date.now();
+
+  // Check duplicate — nếu đã có fact tương tự thì update thay vì insert
+  const existing = db
+    .query(`SELECT id FROM memory_facts WHERE user_id = ? AND fact = ?`)
+    .get(userId, fact) as any;
+
+  if (existing) {
+    db.run(
+      `UPDATE memory_facts SET category = ?, source = ?, updated_at = ? WHERE id = ?`,
+      [category, source, now, existing.id],
+    );
+    return { id: existing.id, userId, fact, category, source, createdAt: now, updatedAt: now };
+  }
+
+  const result = db.run(
+    `INSERT INTO memory_facts (user_id, fact, category, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    [userId, fact, category, source, now, now],
+  );
+  return {
+    id: Number(result.lastInsertRowid),
+    userId,
+    fact,
+    category,
+    source,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+/**
+ * Tìm facts theo keyword — hybrid FTS5 + LIKE fallback.
+ * FTS5 cho ranked results tốt hơn, LIKE fallback nếu FTS5 trả rỗng.
+ */
+export function searchFacts(userId: number, keyword: string, limit: number = 20): MemoryFact[] {
+  // FTS5 search trước — ranked by relevance (bm25)
+  const ftsRows = db
+    .query(
+      `SELECT m.*, bm25(memory_facts_fts) as rank
+       FROM memory_facts_fts fts
+       JOIN memory_facts m ON m.id = fts.rowid
+       WHERE memory_facts_fts MATCH ? AND m.user_id = ?
+       ORDER BY rank
+       LIMIT ?`,
+    )
+    .all(keyword, userId, limit) as any[];
+
+  if (ftsRows.length > 0) {
+    touchFactsAccess(ftsRows.map((r: any) => r.id));
+    return ftsRows.map(mapFact);
+  }
+
+  // LIKE fallback — cho trường hợp keyword không match FTS syntax
+  const likeRows = db
+    .query(
+      `SELECT * FROM memory_facts WHERE user_id = ? AND (fact LIKE ? OR category LIKE ?)
+       ORDER BY updated_at DESC LIMIT ?`,
+    )
+    .all(userId, `%${keyword}%`, `%${keyword}%`, limit) as any[];
+
+  if (likeRows.length > 0) {
+    touchFactsAccess(likeRows.map((r: any) => r.id));
+  }
+  return likeRows.map(mapFact);
+}
+
+/**
+ * Lấy facts của user, ưu tiên: hay truy cập + mới update.
+ * Dùng composite score: recency + frequency.
+ */
+export function getUserFacts(userId: number, limit: number = 50): MemoryFact[] {
+  const rows = db
+    .query(
+      `SELECT * FROM memory_facts WHERE user_id = ?
+       ORDER BY
+         CASE WHEN access_count > 0 THEN 1 ELSE 0 END DESC,
+         updated_at DESC
+       LIMIT ?`,
+    )
+    .all(userId, limit) as any[];
+  return rows.map(mapFact);
+}
+
+/**
+ * Cập nhật last_accessed_at + access_count cho facts đã truy cập.
+ */
+function touchFactsAccess(factIds: number[]): void {
+  if (factIds.length === 0) return;
+  const placeholders = factIds.map(() => "?").join(",");
+  db.run(
+    `UPDATE memory_facts SET last_accessed_at = ?, access_count = access_count + 1
+     WHERE id IN (${placeholders})`,
+    [Date.now(), ...factIds],
+  );
+}
+
+/**
+ * Lấy facts theo category.
+ */
+export function getFactsByCategory(userId: number, category: string): MemoryFact[] {
+  const rows = db
+    .query(`SELECT * FROM memory_facts WHERE user_id = ? AND category = ? ORDER BY updated_at DESC`)
+    .all(userId, category) as any[];
+  return rows.map(mapFact);
+}
+
+/**
+ * Xóa fact theo ID.
+ */
+export function deleteFact(userId: number, factId: number): boolean {
+  const result = db.run(
+    `DELETE FROM memory_facts WHERE id = ? AND user_id = ?`,
+    [factId, userId],
+  );
+  return result.changes > 0;
+}
+
+/**
+ * Đếm tổng facts của user.
+ */
+export function countFacts(userId: number): number {
+  const row = db.query(`SELECT COUNT(*) as cnt FROM memory_facts WHERE user_id = ?`).get(userId) as any;
+  return row.cnt;
+}
+
+function mapFact(r: any): MemoryFact {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    fact: r.fact,
+    category: r.category,
+    source: r.source,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    lastAccessedAt: r.last_accessed_at || 0,
+    accessCount: r.access_count || 0,
+  };
+}
+
 // --- Monitored URL Operations ---
 
 export interface MonitoredUrl {
