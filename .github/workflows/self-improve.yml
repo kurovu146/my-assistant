@@ -1,0 +1,81 @@
+name: Self-Improve
+
+on:
+  schedule:
+    - cron: '0 2 * * 0' # Chủ nhật 2AM UTC
+  workflow_dispatch:
+    inputs:
+      category:
+        description: 'Audit category'
+        required: true
+        type: choice
+        options:
+          - auto
+          - security
+          - performance
+          - code-quality
+          - dependencies
+          - skills
+
+jobs:
+  check-existing:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Check for open Claude PRs
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          open_prs=$(gh pr list --repo ${{ github.repository }} \
+            --head "claude/" --state open --json number --jq 'length')
+          if [ "$open_prs" -gt "0" ]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping: $open_prs open claude/ PR(s) already exist"
+          else
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  improve:
+    needs: check-existing
+    if: needs.check-existing.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          direct_prompt: |
+            You are auditing the my-assistant Telegram bot codebase for self-improvement.
+
+            Category: ${{ github.event.inputs.category || 'auto' }}
+
+            Context:
+            - Stack: Bun, TypeScript, grammY, Claude Agent SDK, SQLite
+            - Bot runs locally on Mac via PM2
+            - This is a personal project for a solo dev
+
+            Instructions:
+            1. Read CLAUDE.md and src/ directory to understand the project.
+            2. Based on the category, identify the SINGLE most impactful improvement.
+               - auto: pick the area with highest value
+               - security: env handling, auth, input validation
+               - performance: memory leaks, streaming efficiency, DB queries
+               - code-quality: TypeScript types, error handling, dead code
+               - dependencies: outdated/vulnerable packages in package.json
+               - skills: review skills/*.md for accuracy and completeness
+            3. Implement the improvement directly in the code.
+            4. Keep changes small and focused (under 200 lines diff).
+            5. Do NOT modify: .env, sessions.db, ecosystem.config.cjs, bun.lock
+            6. Do NOT add new dependencies unless absolutely necessary.
+            7. Write a clear commit message following Conventional Commits.
+
+            IMPORTANT: Make only ONE focused improvement. Quality over quantity.
+          allowed_tools: "Bash,Read,Write,Edit,Glob,Grep"
+          timeout_minutes: "10"

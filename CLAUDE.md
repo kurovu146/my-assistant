@@ -57,3 +57,13 @@ Khi trả lời task/vấn đề, dùng format:
 - Các file `.md` trong thư mục `skills/` được load tự động vào system prompt
 - Thêm skill mới: tạo file `.md` trong `skills/`, restart bot
 - Skills hiện tại: `godot.md`, `go-gamedev.md`, `git-workflow.md`, `database-sql.md`, `docker-devops.md`, `code-review.md`, `project-management.md`, `research.md`, `gmail.md`
+
+## CI/CD Context (for GitHub Actions)
+
+Khi chạy trong GitHub Actions (self-improvement workflow):
+- Bạn đang audit codebase của chính bot này
+- Chỉ thay đổi nhỏ, focused (1 improvement per PR, < 200 dòng diff)
+- Follow Conventional Commits: feat:, fix:, refactor:, docs:, chore:
+- KHÔNG sửa: .env, sessions.db, ecosystem.config.cjs, bun.lock
+- KHÔNG thêm secrets hay credentials vào code
+- Owner sẽ review và merge PR thủ công
