@@ -129,27 +129,41 @@ async function safeSendMessage(ctx: any, text: string): Promise<void> {
 }
 
 // ============================================================
-// Handler: Text message — với streaming + queue + abort
+// handleQueryWithStreaming — Common streaming logic cho tất cả handlers
+// ============================================================
+//
+// Chứa toàn bộ logic chung:
+// - AbortController + activeQueries
+// - Typing indicator liên tục
+// - Streaming state + flushStream (throttled 1.5s)
+// - askClaude call với progress callback
+// - Session create/touch
+// - Footer (tools + timing)
+// - Split + edit/send final messages
+// - Error handling + cleanup
 // ============================================================
 
-async function handleTextMessage(ctx: any): Promise<void> {
-  const userId = ctx.from?.id;
-  const text = ctx.message?.text;
-  if (userId === undefined || !text) return;
-
-  // Queue: chờ tin trước xong
-  withUserLock(userId, () => processMessage(ctx, userId, text));
+interface StreamingOptions {
+  /** Prompt gửi cho Claude */
+  prompt: string;
+  /** User ID (Telegram) */
+  userId: number;
+  /** Context object (grammy) */
+  ctx: any;
+  /** Chat ID */
+  chatId: number;
+  /** Message ID của progress message (sẽ được edit liên tục) */
+  messageId: number;
+  /** Title cho session mới (nếu chưa có session) */
+  sessionTitle: string;
+  /** Label cho error message, vd: "Lỗi", "Lỗi xử lý file" */
+  errorLabel: string;
+  /** Callback chạy sau khi hoàn thành (cleanup file, etc.) */
+  onComplete?: () => Promise<void>;
 }
 
-async function processMessage(
-  ctx: any,
-  userId: number,
-  text: string,
-): Promise<void> {
-  await ctx.replyWithChatAction("typing");
-  const processingMsg = await ctx.reply("⏳ Đang xử lý...");
-  const chatId = ctx.chat.id;
-  const msgId = processingMsg.message_id;
+async function handleQueryWithStreaming(options: StreamingOptions): Promise<void> {
+  const { prompt, userId, ctx, chatId, messageId, sessionTitle, errorLabel, onComplete } = options;
   const startTime = Date.now();
 
   // AbortController — /stop sẽ abort signal này
@@ -196,7 +210,7 @@ async function processMessage(
           : preview + suffix)
       : `⏳${currentTool ? ` ${TOOL_ICONS[currentTool] || "🔧"} Đang dùng ${currentTool}...` : " Đang xử lý..."}`;
 
-    await safeEditText(ctx.api, chatId, msgId, displayText, "Markdown");
+    await safeEditText(ctx.api, chatId, messageId, displayText, "Markdown");
     editPending = false;
   };
 
@@ -205,7 +219,7 @@ async function processMessage(
     const sessionId = session?.sessionId;
 
     const response = await askClaude(
-      text,
+      prompt,
       sessionId,
       async (update) => {
         if (update.type === "text_chunk") {
@@ -226,14 +240,13 @@ async function processMessage(
 
     // Xử lý lỗi
     if (response.error) {
-      await safeEditText(ctx.api, chatId, msgId, `❌ Lỗi: ${response.error}`);
+      await safeEditText(ctx.api, chatId, messageId, `❌ ${errorLabel}: ${response.error}`);
       return;
     }
 
     // Lưu session
     if (!session && response.sessionId) {
-      const title = text.length > 50 ? text.slice(0, 50) + "..." : text;
-      createSession(userId, response.sessionId, title);
+      createSession(userId, response.sessionId, sessionTitle);
     } else if (session) {
       touchSession(userId, session.sessionId);
     }
@@ -252,25 +265,58 @@ async function processMessage(
     const messages = splitMessage(fullResponse);
 
     // Edit message đầu tiên (thay thế progress)
-    const editOk = await safeEditText(ctx.api, chatId, msgId, messages[0], "Markdown");
+    const firstMsg = messages[0] ?? fullResponse;
+    const editOk = await safeEditText(ctx.api, chatId, messageId, firstMsg, "Markdown");
     if (!editOk) {
       // Edit fail → xóa và gửi mới
-      await ctx.api.deleteMessage(chatId, msgId).catch(() => {});
-      await safeSendMessage(ctx, messages[0]);
+      await ctx.api.deleteMessage(chatId, messageId).catch(() => {});
+      await safeSendMessage(ctx, firstMsg);
     }
 
     // Gửi phần còn lại
     for (let i = 1; i < messages.length; i++) {
-      await safeSendMessage(ctx, messages[i]);
+      await safeSendMessage(ctx, messages[i]!);
     }
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
     console.error("❌ Message handler error:", errMsg);
-    await safeEditText(ctx.api, chatId, msgId, `❌ Đã xảy ra lỗi: ${errMsg}`);
+    await safeEditText(ctx.api, chatId, messageId, `❌ ${errorLabel}: ${errMsg}`);
   } finally {
     clearInterval(typingInterval);
     activeQueries.delete(userId);
+    // Cleanup callback (file deletion, etc.)
+    if (onComplete) {
+      try { await onComplete(); } catch {}
+    }
   }
+}
+
+// ============================================================
+// Handler: Text message — với streaming + queue + abort
+// ============================================================
+
+async function handleTextMessage(ctx: any): Promise<void> {
+  const userId = ctx.from?.id;
+  const text = ctx.message?.text;
+  if (userId === undefined || !text) return;
+
+  // Queue: chờ tin trước xong
+  withUserLock(userId, async () => {
+    await ctx.replyWithChatAction("typing");
+    const processingMsg = await ctx.reply("⏳ Đang xử lý...");
+
+    const sessionTitle = text.length > 50 ? text.slice(0, 50) + "..." : text;
+
+    await handleQueryWithStreaming({
+      prompt: text,
+      userId,
+      ctx,
+      chatId: ctx.chat.id,
+      messageId: processingMsg.message_id,
+      sessionTitle,
+      errorLabel: "Đã xảy ra lỗi",
+    });
+  });
 }
 
 // ============================================================
@@ -290,13 +336,6 @@ async function handleDocument(ctx: any): Promise<void> {
     const chatId = ctx.chat.id;
     const msgId = processingMsg.message_id;
 
-    const controller = new AbortController();
-    activeQueries.set(userId, controller);
-
-    const typingInterval = setInterval(async () => {
-      try { await ctx.replyWithChatAction("typing"); } catch {}
-    }, 4000);
-
     try {
       // Download file
       const file = await ctx.api.getFile(doc.file_id);
@@ -305,96 +344,30 @@ async function handleDocument(ctx: any): Promise<void> {
       const fileBuffer = await fileResponse.arrayBuffer();
 
       const tempDir = `${config.claudeWorkingDir}/.telegram-uploads`;
-      await Bun.write(`${tempDir}/${safeName}`, fileBuffer);
+      const tempPath = `${tempDir}/${safeName}`;
+      await Bun.write(tempPath, fileBuffer);
 
       await safeEditText(ctx.api, chatId, msgId, `📄 Đã tải ${safeName}, đang phân tích...`);
-      const startTime = Date.now();
-
-      // Use active session for context
-      const session = getActiveSession(userId);
-      const sessionId = session?.sessionId;
-
-      // Streaming state (same pattern as text handler)
-      let streamedText = "";
-      let lastEditTime = 0;
-      let editPending = false;
-      let currentTool = "";
-
-      const flushStream = async (force = false) => {
-        const now = Date.now();
-        if (!force && now - lastEditTime < 1500) return;
-        if (editPending) return;
-        editPending = true;
-        lastEditTime = now;
-        const preview = streamedText.trim();
-        let suffix: string;
-        if (currentTool) {
-          const icon = TOOL_ICONS[currentTool] || "🔧";
-          suffix = `\n\n⏳ ${icon} _Đang dùng ${currentTool}..._`;
-        } else {
-          suffix = "\n\n⏳ _Đang xử lý..._";
-        }
-        const displayText = preview
-          ? (preview.length > 3800
-              ? preview.slice(0, 3800) + "\n\n⏳ _Đang tiếp tục..._"
-              : preview + suffix)
-          : `⏳${currentTool ? ` ${TOOL_ICONS[currentTool] || "🔧"} Đang dùng ${currentTool}...` : " Đang xử lý..."}`;
-        await safeEditText(ctx.api, chatId, msgId, displayText, "Markdown");
-        editPending = false;
-      };
 
       const prompt = `File "${safeName}" đã được lưu tại .telegram-uploads/${safeName}\n\nYêu cầu: ${caption}`;
-      const response = await askClaude(prompt, sessionId, (update) => {
-        if (update.type === "text_chunk") {
-          streamedText += update.content;
-          currentTool = "";
-          flushStream().catch(() => {});
-        } else if (update.type === "tool_use") {
-          currentTool = update.content;
-          flushStream().catch(() => {});
-        }
-      }, controller.signal);
 
-      // Save/touch session
-      if (!session && response.sessionId) {
-        createSession(userId, response.sessionId, `📄 ${safeName}`);
-      } else if (session) {
-        touchSession(userId, session.sessionId);
-      }
-
-      // Build result with footer
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      let fullResponse = response.error
-        ? `❌ Lỗi: ${response.error}`
-        : response.text;
-      if (!response.error) {
-        const fp: string[] = [];
-        if (response.toolsUsed.length > 0) fp.push(formatToolsUsed(response.toolsUsed));
-        fp.push(`⏱ ${elapsed}s`);
-        fullResponse += `\n\n---\n${fp.join("  |  ")}`;
-      }
-
-      const messages = splitMessage(fullResponse);
-      const editOk = await safeEditText(ctx.api, chatId, msgId, messages[0], "Markdown");
-      if (!editOk) {
-        await ctx.api.deleteMessage(chatId, msgId).catch(() => {});
-        await safeSendMessage(ctx, messages[0]);
-      }
-      for (let i = 1; i < messages.length; i++) {
-        await safeSendMessage(ctx, messages[i]);
-      }
-
-      // Cleanup temp file
-      try {
-        const fs = await import("fs/promises");
-        await fs.unlink(`${tempDir}/${safeName}`);
-      } catch {}
+      await handleQueryWithStreaming({
+        prompt,
+        userId,
+        ctx,
+        chatId,
+        messageId: msgId,
+        sessionTitle: `📄 ${safeName}`,
+        errorLabel: "Lỗi xử lý file",
+        onComplete: async () => {
+          const fs = await import("fs/promises");
+          await fs.unlink(tempPath);
+        },
+      });
     } catch (error) {
+      // Lỗi download file (trước khi vào streaming)
       const errMsg = error instanceof Error ? error.message : String(error);
       await safeEditText(ctx.api, chatId, msgId, `❌ Lỗi xử lý file: ${errMsg}`);
-    } finally {
-      clearInterval(typingInterval);
-      activeQueries.delete(userId);
     }
   });
 }
@@ -415,13 +388,6 @@ async function handlePhoto(ctx: any): Promise<void> {
     const chatId = ctx.chat.id;
     const msgId = processingMsg.message_id;
 
-    const controller = new AbortController();
-    activeQueries.set(userId, controller);
-
-    const typingInterval = setInterval(async () => {
-      try { await ctx.replyWithChatAction("typing"); } catch {}
-    }, 4000);
-
     try {
       const photo = photos[photos.length - 1];
       const file = await ctx.api.getFile(photo.file_id);
@@ -430,95 +396,30 @@ async function handlePhoto(ctx: any): Promise<void> {
       const imgBuffer = await imgResponse.arrayBuffer();
       const fileName = `photo_${Date.now()}.jpg`;
       const tempDir = `${config.claudeWorkingDir}/.telegram-uploads`;
-      await Bun.write(`${tempDir}/${fileName}`, imgBuffer);
+      const tempPath = `${tempDir}/${fileName}`;
+      await Bun.write(tempPath, imgBuffer);
 
       await safeEditText(ctx.api, chatId, msgId, "🖼 Đã tải ảnh, đang phân tích...");
-      const startTime = Date.now();
-
-      // Use active session
-      const session = getActiveSession(userId);
-      const sessionId = session?.sessionId;
-
-      // Streaming state
-      let streamedText = "";
-      let lastEditTime = 0;
-      let editPending = false;
-      let currentTool = "";
-
-      const flushStream = async (force = false) => {
-        const now = Date.now();
-        if (!force && now - lastEditTime < 1500) return;
-        if (editPending) return;
-        editPending = true;
-        lastEditTime = now;
-        const preview = streamedText.trim();
-        let suffix: string;
-        if (currentTool) {
-          const icon = TOOL_ICONS[currentTool] || "🔧";
-          suffix = `\n\n⏳ ${icon} _Đang dùng ${currentTool}..._`;
-        } else {
-          suffix = "\n\n⏳ _Đang xử lý..._";
-        }
-        const displayText = preview
-          ? (preview.length > 3800
-              ? preview.slice(0, 3800) + "\n\n⏳ _Đang tiếp tục..._"
-              : preview + suffix)
-          : `⏳${currentTool ? ` ${TOOL_ICONS[currentTool] || "🔧"} Đang dùng ${currentTool}...` : " Đang xử lý..."}`;
-        await safeEditText(ctx.api, chatId, msgId, displayText, "Markdown");
-        editPending = false;
-      };
 
       const prompt = `Ảnh đã được lưu tại .telegram-uploads/${fileName}\n\nYêu cầu: ${caption}`;
-      const response = await askClaude(prompt, sessionId, (update) => {
-        if (update.type === "text_chunk") {
-          streamedText += update.content;
-          currentTool = "";
-          flushStream().catch(() => {});
-        } else if (update.type === "tool_use") {
-          currentTool = update.content;
-          flushStream().catch(() => {});
-        }
-      }, controller.signal);
 
-      if (!session && response.sessionId) {
-        createSession(userId, response.sessionId, `🖼 Ảnh: ${caption.slice(0, 40)}`);
-      } else if (session) {
-        touchSession(userId, session.sessionId);
-      }
-
-      // Build result with footer
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      let fullResponse = response.error
-        ? `❌ Lỗi: ${response.error}`
-        : response.text;
-      if (!response.error) {
-        const fp: string[] = [];
-        if (response.toolsUsed.length > 0) fp.push(formatToolsUsed(response.toolsUsed));
-        fp.push(`⏱ ${elapsed}s`);
-        fullResponse += `\n\n---\n${fp.join("  |  ")}`;
-      }
-
-      const messages = splitMessage(fullResponse);
-      const editOk = await safeEditText(ctx.api, chatId, msgId, messages[0], "Markdown");
-      if (!editOk) {
-        await ctx.api.deleteMessage(chatId, msgId).catch(() => {});
-        await safeSendMessage(ctx, messages[0]);
-      }
-      for (let i = 1; i < messages.length; i++) {
-        await safeSendMessage(ctx, messages[i]);
-      }
-
-      // Cleanup
-      try {
-        const fs = await import("fs/promises");
-        await fs.unlink(`${tempDir}/${fileName}`);
-      } catch {}
+      await handleQueryWithStreaming({
+        prompt,
+        userId,
+        ctx,
+        chatId,
+        messageId: msgId,
+        sessionTitle: `🖼 Ảnh: ${caption.slice(0, 40)}`,
+        errorLabel: "Lỗi xử lý ảnh",
+        onComplete: async () => {
+          const fs = await import("fs/promises");
+          await fs.unlink(tempPath);
+        },
+      });
     } catch (error) {
+      // Lỗi download ảnh (trước khi vào streaming)
       const errMsg = error instanceof Error ? error.message : String(error);
       await safeEditText(ctx.api, chatId, msgId, `❌ Lỗi xử lý ảnh: ${errMsg}`);
-    } finally {
-      clearInterval(typingInterval);
-      activeQueries.delete(userId);
     }
   });
 }

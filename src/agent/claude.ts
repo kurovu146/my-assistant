@@ -222,7 +222,7 @@ export async function askClaude(
         cwd: config.claudeWorkingDir,
 
         // CLI path (tùy chọn)
-        ...(config.cliPath ? { cliPath: config.cliPath } : {}),
+        ...(config.cliPath ? { pathToClaudeCodeExecutable: config.cliPath } : {}),
 
         // MCP servers — Gmail integration (nếu có credentials)
         ...(gmailMcp ? { mcpServers: { gmail: gmailMcp } } : {}),
@@ -250,10 +250,16 @@ export async function askClaude(
         // Resume phiên cũ nếu có sessionId
         ...(sessionId ? { resume: sessionId } : {}),
 
-        // Abort signal — cho phép /stop hủy query + auto-timeout 5 phút
-        abortSignal: abortSignal
-          ? AbortSignal.any([abortSignal, AbortSignal.timeout(5 * 60 * 1000)])
-          : AbortSignal.timeout(5 * 60 * 1000),
+        // AbortController — cho phép /stop hủy query + auto-timeout 5 phút
+        abortController: (() => {
+          const controller = new AbortController();
+          const timeoutSignal = AbortSignal.timeout(5 * 60 * 1000);
+          const combinedSignal = abortSignal
+            ? AbortSignal.any([abortSignal, timeoutSignal])
+            : timeoutSignal;
+          combinedSignal.addEventListener("abort", () => controller.abort(combinedSignal.reason), { once: true });
+          return controller;
+        })(),
       },
     });
 
