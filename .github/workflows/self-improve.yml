@@ -41,7 +41,7 @@ jobs:
     needs: check-existing
     if: needs.check-existing.outputs.should_run == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     permissions:
       contents: write
       pull-requests: write
