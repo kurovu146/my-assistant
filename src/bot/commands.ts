@@ -17,11 +17,15 @@ import {
   getActiveSession,
   getRecentSessions,
   setActiveSession,
+  getQueryStats,
+  addMonitoredUrl,
+  removeMonitoredUrl,
+  getUserMonitoredUrls,
 } from "../storage/db.ts";
-import { timeAgo } from "./formatter.ts";
+import { timeAgo, TOOL_ICONS } from "./formatter.ts";
 import { config } from "../config.ts";
-import { reloadSkills, getCumulativeUsage } from "../agent/claude.ts";
-import { loadSkills } from "../agent/skills.ts";
+import { reloadSkills } from "../agent/claude.ts";
+import { getSkillCount } from "../agent/skills.ts";
 
 // Bot start time — để tính uptime
 const botStartTime = Date.now();
@@ -122,7 +126,7 @@ export async function handleResumeCallback(ctx: Context): Promise<void> {
 }
 
 /**
- * /status — Xem trạng thái hiện tại
+ * /status — Xem trạng thái + thống kê (gộp /stats)
  */
 export async function handleStatus(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
@@ -140,26 +144,31 @@ export async function handleStatus(ctx: Context): Promise<void> {
     ? `📝 Session: ${session.title}\n   Tạo: ${timeAgo(session.createdAt)}`
     : "📝 Session: không có (gửi tin nhắn để tạo mới)";
 
-  // Skills count
-  let skillInfo = "📚 Skills: 0";
-  try {
-    const skills = await loadSkills();
-    const count = skills ? (skills.match(/<!-- skill:/g) || []).length : 0;
-    skillInfo = `📚 Skills: ${count} loaded`;
-  } catch {
-    skillInfo = "📚 Skills: error";
-  }
+  // Skills count (từ cache, không đọc disk)
+  const skillInfo = `📚 Skills: ${getSkillCount()} loaded`;
 
-  // Token usage
-  const usage = getCumulativeUsage();
-  const usageInfo =
-    usage.queryCount > 0
-      ? `📈 Token usage (từ lúc khởi động):\n` +
-        `   Queries: ${usage.queryCount}\n` +
-        `   Input: ${formatTokenCount(usage.totalInputTokens)}\n` +
-        `   Output: ${formatTokenCount(usage.totalOutputTokens)}\n` +
-        `   Cost: $${usage.totalCostUSD.toFixed(4)}`
-      : `📈 Token usage: chưa có query nào`;
+  // Query analytics (persistent — từ SQLite)
+  const stats = getQueryStats(userId);
+  let statsInfo: string;
+  if (stats.totalQueries > 0) {
+    const avgSec = (stats.avgResponseMs / 1000).toFixed(1);
+    const topToolsStr = stats.topTools.length > 0
+      ? stats.topTools
+          .slice(0, 3)
+          .map((t) => `${TOOL_ICONS[t.name] || "🔧"}${t.name}(${t.count})`)
+          .join("  ")
+      : "chưa có";
+
+    statsInfo =
+      `📈 Analytics (tích lũy):\n` +
+      `   Queries: ${stats.totalQueries} (hôm nay: ${stats.todayQueries})\n` +
+      `   Tokens: ${formatTokenCount(stats.totalTokensIn)} in / ${formatTokenCount(stats.totalTokensOut)} out\n` +
+      `   Cost: $${stats.totalCostUsd.toFixed(4)}\n` +
+      `   TB: ${avgSec}s/query\n` +
+      `   Top tools: ${topToolsStr}`;
+  } else {
+    statsInfo = `📈 Analytics: chưa có query nào`;
+  }
 
   await ctx.reply(
     `📊 Trạng thái\n\n` +
@@ -169,7 +178,7 @@ export async function handleStatus(ctx: Context): Promise<void> {
       `🔑 Auth: ${config.authMode}\n` +
       `📂 Workspace: ${config.claudeWorkingDir}\n` +
       `${skillInfo}\n\n` +
-      `${usageInfo}\n\n` +
+      `${statsInfo}\n\n` +
       `${sessionInfo}`,
   );
 }
@@ -195,6 +204,100 @@ function formatTokenCount(tokens: number): string {
 export async function handleReload(ctx: Context): Promise<void> {
   reloadSkills();
   await ctx.reply("🔄 Skills đã được reload! Thay đổi sẽ có hiệu lực từ tin nhắn tiếp theo.");
+}
+
+/**
+ * /monitor <url> [label] — Thêm URL để theo dõi thay đổi
+ */
+export async function handleMonitor(ctx: Context): Promise<void> {
+  const userId = ctx.from?.id;
+  if (userId === undefined) return;
+
+  const text = (ctx.message as any)?.text || "";
+  const args = text.replace(/^\/monitor\s*/, "").trim();
+
+  if (!args) {
+    await ctx.reply(
+      "📡 Cách dùng: `/monitor <url> [label]`\n\n" +
+        "Ví dụ:\n" +
+        "`/monitor https://example.com Blog cá nhân`\n" +
+        "`/monitor https://docs.example.com/api API docs`",
+      { parse_mode: "Markdown" },
+    );
+    return;
+  }
+
+  // Tách URL và label
+  const parts = args.split(/\s+/);
+  const url = parts[0]!;
+  const label = parts.slice(1).join(" ") || "";
+
+  // Validate URL
+  try {
+    new URL(url);
+  } catch {
+    await ctx.reply("❌ URL không hợp lệ. Phải bắt đầu bằng http:// hoặc https://");
+    return;
+  }
+
+  addMonitoredUrl(userId, url, label);
+  await ctx.reply(
+    `✅ Đã thêm monitor!\n\n` +
+      `🔗 ${url}\n` +
+      (label ? `📝 ${label}\n` : "") +
+      `⏰ Check mỗi 30 phút`,
+  );
+}
+
+/**
+ * /unmonitor <url> — Bỏ theo dõi URL
+ */
+export async function handleUnmonitor(ctx: Context): Promise<void> {
+  const userId = ctx.from?.id;
+  if (userId === undefined) return;
+
+  const text = (ctx.message as any)?.text || "";
+  const url = text.replace(/^\/unmonitor\s*/, "").trim();
+
+  if (!url) {
+    await ctx.reply("📡 Cách dùng: `/unmonitor <url>`", { parse_mode: "Markdown" });
+    return;
+  }
+
+  const removed = removeMonitoredUrl(userId, url);
+  if (removed) {
+    await ctx.reply(`✅ Đã bỏ monitor: ${url}`);
+  } else {
+    await ctx.reply(`❌ Không tìm thấy URL này trong danh sách monitor.`);
+  }
+}
+
+/**
+ * /monitors — Xem danh sách URLs đang theo dõi
+ */
+export async function handleMonitors(ctx: Context): Promise<void> {
+  const userId = ctx.from?.id;
+  if (userId === undefined) return;
+
+  const urls = getUserMonitoredUrls(userId);
+
+  if (urls.length === 0) {
+    await ctx.reply(
+      "📡 Chưa monitor URL nào.\n\nDùng `/monitor <url> [label]` để thêm.",
+      { parse_mode: "Markdown" },
+    );
+    return;
+  }
+
+  const list = urls
+    .map((u, i) => {
+      const status = u.lastHash ? "✅" : "⏳";
+      const checked = u.lastCheckedAt ? timeAgo(u.lastCheckedAt) : "chưa check";
+      return `${i + 1}. ${status} ${u.label || u.url}\n   🔗 ${u.url}\n   🕐 ${checked}`;
+    })
+    .join("\n\n");
+
+  await ctx.reply(`📡 Đang monitor ${urls.length} URLs:\n\n${list}`);
 }
 
 /**

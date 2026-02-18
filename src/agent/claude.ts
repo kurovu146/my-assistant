@@ -250,10 +250,10 @@ export async function askClaude(
         // Resume phiên cũ nếu có sessionId
         ...(sessionId ? { resume: sessionId } : {}),
 
-        // AbortController — cho phép /stop hủy query + auto-timeout 5 phút
+        // AbortController — cho phép /stop hủy query + auto-timeout 2 giờ
         abortController: (() => {
           const controller = new AbortController();
-          const timeoutSignal = AbortSignal.timeout(5 * 60 * 1000);
+          const timeoutSignal = AbortSignal.timeout(2 * 60 * 60 * 1000);
           const combinedSignal = abortSignal
             ? AbortSignal.any([abortSignal, timeoutSignal])
             : timeoutSignal;
@@ -326,13 +326,19 @@ export async function askClaude(
       usage,
     };
   } catch (error) {
-    // Handle abort gracefully — trả text đã nhận được (nếu có)
-    if (abortSignal?.aborted) {
+    // Handle abort gracefully — phân biệt timeout vs user abort
+    const isAborted = abortSignal?.aborted;
+    const isTimeout = error instanceof DOMException && error.name === "TimeoutError";
+    if (isAborted || isTimeout) {
       const partial = textParts.join("").trim();
+      const reason = isTimeout
+        ? "⏱ Query bị timeout (quá 2 giờ)."
+        : "⏹ Query đã bị dừng.";
       return {
-        text: partial || "⏹ Query đã bị dừng.",
+        text: partial || reason,
         sessionId: resolvedSessionId,
         toolsUsed: [...new Set(toolsUsed)],
+        ...(isTimeout ? { error: reason } : {}),
       };
     }
 

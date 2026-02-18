@@ -14,6 +14,7 @@
 import { createBot } from "./bot/telegram.ts";
 import { config } from "./config.ts";
 import { checkAuth } from "./agent/claude.ts";
+import { startWebMonitor, stopWebMonitor } from "./services/web-monitor.ts";
 import type { Bot } from "grammy";
 
 // Xóa CLAUDECODE để tránh "nested session" error khi chạy qua PM2
@@ -59,9 +60,12 @@ async function main() {
     { command: "start", description: "Bắt đầu / Hướng dẫn" },
     { command: "new", description: "Phiên hội thoại mới" },
     { command: "resume", description: "Tiếp tục phiên cũ" },
-    { command: "status", description: "Xem trạng thái" },
+    { command: "status", description: "Xem trạng thái & thống kê" },
     { command: "stop", description: "Dừng query đang chạy" },
     { command: "reload", description: "Reload skills" },
+    { command: "monitor", description: "Theo dõi webpage thay đổi" },
+    { command: "unmonitor", description: "Bỏ theo dõi webpage" },
+    { command: "monitors", description: "Danh sách đang theo dõi" },
   ]);
 
   // 6. Xóa webhook cũ + drop pending updates
@@ -69,9 +73,22 @@ async function main() {
   //    deleteWebhook ép Telegram reset polling state → instance mới poll clean.
   await bot.api.deleteWebhook({ drop_pending_updates: true });
 
+  // 7. Start Web Monitor cron
+  //    Gửi notification qua chat đầu tiên trong allowedUsers
+  if (config.allowedUsers.length > 0) {
+    const chatId = config.allowedUsers[0]!;
+    startWebMonitor(async (message) => {
+      try {
+        await bot!.api.sendMessage(chatId, message);
+      } catch (err) {
+        console.error("❌ Monitor notify error:", err);
+      }
+    });
+  }
+
   console.log("✅ Bot đã sẵn sàng! Đang lắng nghe tin nhắn...\n");
 
-  // 7. Bắt đầu polling
+  // 8. Bắt đầu polling
   bot.start({
     onStart: (botInfo) => {
       console.log(`🚀 @${botInfo.username} đang chạy!`);
@@ -85,6 +102,7 @@ async function main() {
 
 async function shutdown() {
   console.log("\n👋 Đang tắt bot...");
+  stopWebMonitor();
   if (bot) {
     await bot.stop();
   }

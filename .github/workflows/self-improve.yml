@@ -2,7 +2,7 @@ name: Self-Improve
 
 on:
   schedule:
-    - cron: '0 2 * * 0' # Chủ nhật 2AM UTC
+    - cron: '0 17 * * *' # Mỗi ngày 0h VN (17h UTC)
   workflow_dispatch:
     inputs:
       category:

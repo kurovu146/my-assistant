@@ -26,8 +26,8 @@ export const config = {
   claudeWorkingDir: process.env.CLAUDE_WORKING_DIR || process.cwd(),
   cliPath: process.env.CLAUDE_CLI_PATH || undefined,
 
-  // Agent tuning
-  maxTurns: parseInt(process.env.CLAUDE_MAX_TURNS || "10"),
+  // Agent tuning — 30 turns đủ cho task phức tạp (research, multi-file)
+  maxTurns: parseInt(process.env.CLAUDE_MAX_TURNS || "30"),
 
   // Session
   sessionTimeoutHours: parseInt(process.env.SESSION_TIMEOUT_HOURS || "72"),

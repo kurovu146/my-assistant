@@ -56,7 +56,7 @@ Khi trả lời task/vấn đề, dùng format:
 
 - Các file `.md` trong thư mục `skills/` được load tự động vào system prompt
 - Thêm skill mới: tạo file `.md` trong `skills/`, restart bot
-- Skills hiện tại: `godot.md`, `go-gamedev.md`, `git-workflow.md`, `database-sql.md`, `docker-devops.md`, `code-review.md`, `project-management.md`, `research.md`, `gmail.md`
+- Skills hiện tại: `godot.md`, `go-gamedev.md`, `git-workflow.md`, `database-sql.md`, `docker-devops.md`, `code-review.md`, `project-management.md`, `research.md`, `gmail.md`, `telegram-ux.md`, `security-awareness.md`
 
 ## CI/CD Context (for GitHub Actions)
 

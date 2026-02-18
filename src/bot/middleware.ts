@@ -20,6 +20,20 @@ import { config } from "../config.ts";
 const userMessageTimestamps: Map<number, number[]> = new Map();
 const RATE_LIMIT = 5;
 const RATE_WINDOW_MS = 60_000;
+const CLEANUP_INTERVAL_MS = 5 * 60_000; // Cleanup mỗi 5 phút
+
+// Auto cleanup users không hoạt động — tránh memory leak
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, timestamps] of userMessageTimestamps) {
+    const recent = timestamps.filter((t) => now - t < RATE_WINDOW_MS);
+    if (recent.length === 0) {
+      userMessageTimestamps.delete(userId);
+    } else {
+      userMessageTimestamps.set(userId, recent);
+    }
+  }
+}, CLEANUP_INTERVAL_MS);
 
 /**
  * Middleware rate limiting per user.

@@ -53,6 +53,224 @@ db.run(`
   )
 `);
 
+// Bảng query_logs: log mỗi query để analytics
+db.run(`
+  CREATE TABLE IF NOT EXISTS query_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    prompt_preview TEXT NOT NULL,
+    response_time_ms INTEGER NOT NULL,
+    tokens_in INTEGER NOT NULL DEFAULT 0,
+    tokens_out INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL NOT NULL DEFAULT 0,
+    tools_used TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+  )
+`);
+
+// Indexes cho query_logs — tăng tốc /status analytics
+db.run(`CREATE INDEX IF NOT EXISTS idx_query_logs_user ON query_logs (user_id, created_at)`);
+
+// Bảng monitored_urls: URLs đang được theo dõi
+db.run(`
+  CREATE TABLE IF NOT EXISTS monitored_urls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    url TEXT NOT NULL,
+    label TEXT NOT NULL DEFAULT '',
+    last_hash TEXT,
+    created_at INTEGER NOT NULL,
+    last_checked_at INTEGER
+  )
+`);
+
+// --- Monitored URL Operations ---
+
+export interface MonitoredUrl {
+  id: number;
+  userId: number;
+  url: string;
+  label: string;
+  lastHash: string | null;
+  createdAt: number;
+  lastCheckedAt: number | null;
+}
+
+/**
+ * Thêm URL để monitor.
+ */
+export function addMonitoredUrl(userId: number, url: string, label: string): MonitoredUrl {
+  const now = Date.now();
+  const result = db.run(
+    `INSERT INTO monitored_urls (user_id, url, label, created_at) VALUES (?, ?, ?, ?)`,
+    [userId, url, label, now],
+  );
+  return {
+    id: Number(result.lastInsertRowid),
+    userId,
+    url,
+    label,
+    lastHash: null,
+    createdAt: now,
+    lastCheckedAt: null,
+  };
+}
+
+/**
+ * Xóa URL khỏi monitor.
+ */
+export function removeMonitoredUrl(userId: number, url: string): boolean {
+  const result = db.run(
+    `DELETE FROM monitored_urls WHERE user_id = ? AND url = ?`,
+    [userId, url],
+  );
+  return result.changes > 0;
+}
+
+/**
+ * Lấy danh sách URLs đang monitor (tất cả users).
+ */
+export function getMonitoredUrls(): MonitoredUrl[] {
+  const rows = db.query(`SELECT * FROM monitored_urls`).all() as any[];
+  return rows.map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    url: r.url,
+    label: r.label,
+    lastHash: r.last_hash,
+    createdAt: r.created_at,
+    lastCheckedAt: r.last_checked_at,
+  }));
+}
+
+/**
+ * Lấy URLs đang monitor của 1 user.
+ */
+export function getUserMonitoredUrls(userId: number): MonitoredUrl[] {
+  const rows = db
+    .query(`SELECT * FROM monitored_urls WHERE user_id = ? ORDER BY created_at DESC`)
+    .all(userId) as any[];
+  return rows.map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    url: r.url,
+    label: r.label,
+    lastHash: r.last_hash,
+    createdAt: r.created_at,
+    lastCheckedAt: r.last_checked_at,
+  }));
+}
+
+/**
+ * Cập nhật hash sau khi check.
+ */
+export function updateUrlHash(id: number, hash: string): void {
+  db.run(
+    `UPDATE monitored_urls SET last_hash = ?, last_checked_at = ? WHERE id = ?`,
+    [hash, Date.now(), id],
+  );
+}
+
+// --- Query Log Operations ---
+
+export interface QueryLog {
+  promptPreview: string;
+  responseTimeMs: number;
+  tokensIn: number;
+  tokensOut: number;
+  costUsd: number;
+  toolsUsed: string;
+  createdAt: number;
+}
+
+/**
+ * Log một query đã hoàn thành.
+ */
+export function logQuery(
+  userId: number,
+  promptPreview: string,
+  responseTimeMs: number,
+  tokensIn: number,
+  tokensOut: number,
+  costUsd: number,
+  toolsUsed: string[],
+): void {
+  db.run(
+    `INSERT INTO query_logs (user_id, prompt_preview, response_time_ms, tokens_in, tokens_out, cost_usd, tools_used, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      userId,
+      promptPreview.slice(0, 50),
+      responseTimeMs,
+      tokensIn,
+      tokensOut,
+      costUsd,
+      toolsUsed.join(","),
+      Date.now(),
+    ],
+  );
+}
+
+export interface QueryStats {
+  totalQueries: number;
+  todayQueries: number;
+  totalTokensIn: number;
+  totalTokensOut: number;
+  totalCostUsd: number;
+  avgResponseMs: number;
+  topTools: { name: string; count: number }[];
+}
+
+/**
+ * Lấy thống kê query cho user.
+ */
+export function getQueryStats(userId: number): QueryStats {
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const total = db
+    .query(
+      `SELECT COUNT(*) as cnt, COALESCE(SUM(tokens_in), 0) as tin, COALESCE(SUM(tokens_out), 0) as tout,
+              COALESCE(SUM(cost_usd), 0) as cost, COALESCE(AVG(response_time_ms), 0) as avg_ms
+       FROM query_logs WHERE user_id = ?`,
+    )
+    .get(userId) as any;
+
+  const today = db
+    .query(
+      `SELECT COUNT(*) as cnt FROM query_logs WHERE user_id = ? AND created_at >= ?`,
+    )
+    .get(userId, todayStart.getTime()) as any;
+
+  // Top tools — parse comma-separated tools_used
+  const allTools = db
+    .query(`SELECT tools_used FROM query_logs WHERE user_id = ? AND tools_used != ''`)
+    .all(userId) as any[];
+
+  const toolCounts = new Map<string, number>();
+  for (const row of allTools) {
+    for (const tool of row.tools_used.split(",")) {
+      const t = tool.trim();
+      if (t) toolCounts.set(t, (toolCounts.get(t) || 0) + 1);
+    }
+  }
+
+  const topTools = [...toolCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([name, count]) => ({ name, count }));
+
+  return {
+    totalQueries: total.cnt,
+    todayQueries: today.cnt,
+    totalTokensIn: total.tin,
+    totalTokensOut: total.tout,
+    totalCostUsd: total.cost,
+    avgResponseMs: Math.round(total.avg_ms),
+    topTools,
+  };
+}
+
 // --- Session Operations ---
 
 /**

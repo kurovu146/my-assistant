@@ -54,6 +54,17 @@ export async function loadSkills(): Promise<string> {
   return `\n\n---\n## Skills & Kiến thức chuyên môn\n\n${parts.join("\n\n---\n\n")}`;
 }
 
+// Cache skill count — cập nhật khi buildSystemPrompt() chạy
+let cachedSkillCount = 0;
+
+/**
+ * Lấy số lượng skills đã load (từ cache, không đọc disk).
+ * Dùng trong /status để tránh I/O không cần thiết.
+ */
+export function getSkillCount(): number {
+  return cachedSkillCount;
+}
+
 /**
  * Đọc CLAUDE.md (system instructions) + gộp skills
  * Trả về systemPrompt hoàn chỉnh.
@@ -73,8 +84,8 @@ export async function buildSystemPrompt(): Promise<string> {
   const fullPrompt = (basePrompt.trim() + skills).trim();
 
   if (fullPrompt) {
-    const skillCount = skills ? skills.split("<!-- skill:").length - 1 : 0;
-    console.log(`📚 System prompt loaded (${skillCount} skills)`);
+    cachedSkillCount = skills ? skills.split("<!-- skill:").length - 1 : 0;
+    console.log(`📚 System prompt loaded (${cachedSkillCount} skills)`);
   }
 
   return fullPrompt;

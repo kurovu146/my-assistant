@@ -17,8 +17,10 @@ import {
   getActiveSession,
   createSession,
   touchSession,
+  logQuery,
 } from "../storage/db.ts";
 import { splitMessage, formatToolsUsed, TOOL_ICONS } from "./formatter.ts";
+import { sanitizeResponse } from "./content-filter.ts";
 import { authMiddleware, rateLimitMiddleware } from "./middleware.ts";
 import {
   handleStart,
@@ -28,6 +30,9 @@ import {
   handleStatus,
   handleStop,
   handleReload,
+  handleMonitor,
+  handleUnmonitor,
+  handleMonitors,
   activeQueries,
 } from "./commands.ts";
 
@@ -78,6 +83,9 @@ export function createBot(): Bot {
   bot.command("status", handleStatus);
   bot.command("stop", handleStop);
   bot.command("reload", handleReload);
+  bot.command("monitor", handleMonitor);
+  bot.command("unmonitor", handleUnmonitor);
+  bot.command("monitors", handleMonitors);
 
   bot.callbackQuery(/^resume:/, handleResumeCallback);
 
@@ -238,9 +246,15 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
     // Clear typing
     clearInterval(typingInterval);
 
-    // Xử lý lỗi
+    // Xử lý lỗi — hiển thị rõ loại lỗi
     if (response.error) {
-      await safeEditText(ctx.api, chatId, messageId, `❌ ${errorLabel}: ${response.error}`);
+      const hasPartial = response.text && response.text.length > 0;
+      if (hasPartial) {
+        // Có kết quả bán phần → gửi kèm thông báo lỗi
+        await safeEditText(ctx.api, chatId, messageId, `${response.text}\n\n⚠️ ${response.error}`);
+      } else {
+        await safeEditText(ctx.api, chatId, messageId, `❌ ${errorLabel}: ${response.error}`);
+      }
       return;
     }
 
@@ -251,9 +265,24 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
       touchSession(userId, session.sessionId);
     }
 
+    // Log query analytics
+    const responseTimeMs = Date.now() - startTime;
+    logQuery(
+      userId,
+      prompt,
+      responseTimeMs,
+      response.usage?.inputTokens || 0,
+      response.usage?.outputTokens || 0,
+      response.usage?.costUSD || 0,
+      response.toolsUsed,
+    );
+
+    // Content filter — redact secrets trước khi gửi
+    const safeText = sanitizeResponse(response.text);
+
     // Build final response with footer (tools + time)
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    let fullResponse = response.text;
+    const elapsed = (responseTimeMs / 1000).toFixed(1);
+    let fullResponse = safeText;
     const footerParts: string[] = [];
     if (response.toolsUsed.length > 0) {
       footerParts.push(formatToolsUsed(response.toolsUsed));
