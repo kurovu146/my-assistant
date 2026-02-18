@@ -9,7 +9,7 @@
 // ============================================================
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { getUserFacts, saveFact, deleteFact, countFacts } from "../storage/db.ts";
+import { getUserFacts, saveFact, deleteFact, countFacts, cleanupOldData } from "../storage/db.ts";
 
 const CONSOLIDATION_PROMPT = `Bạn là bộ tối ưu hóa bộ nhớ. Nhiệm vụ: gộp các facts trùng lặp hoặc tương tự thành facts ngắn gọn hơn.
 
@@ -171,6 +171,13 @@ export function stopMemoryConsolidation(): void {
 }
 
 async function runConsolidation(): Promise<void> {
+  // Cleanup old data first
+  const cleanup = cleanupOldData();
+  if (cleanup.logsDeleted > 0 || cleanup.sessionsDeleted > 0) {
+    console.log(`🧹 Cleanup: deleted ${cleanup.logsDeleted} old logs, ${cleanup.sessionsDeleted} old sessions`);
+  }
+
+  // Then consolidate facts
   for (const userId of targetUserIds) {
     await consolidateUserFacts(userId);
   }

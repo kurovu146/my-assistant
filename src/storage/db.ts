@@ -487,6 +487,43 @@ export function getQueryStats(userId: number): QueryStats {
   };
 }
 
+// --- Cleanup Operations ---
+
+export interface CleanupResult {
+  logsDeleted: number;
+  sessionsDeleted: number;
+}
+
+/**
+ * Dọn dẹp dữ liệu cũ để tránh DB phình to.
+ * - query_logs > 90 ngày → xóa
+ * - sessions > 30 ngày không active → xóa
+ */
+export function cleanupOldData(): CleanupResult {
+  const now = Date.now();
+  const ninetyDaysAgo = now - 90 * 24 * 60 * 60 * 1000;
+  const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+
+  const logsResult = db.run(
+    `DELETE FROM query_logs WHERE created_at < ?`,
+    [ninetyDaysAgo],
+  );
+
+  const sessionsResult = db.run(
+    `DELETE FROM sessions
+     WHERE last_active_at < ?
+       AND (user_id, session_id) NOT IN (
+         SELECT user_id, session_id FROM active_sessions
+       )`,
+    [thirtyDaysAgo],
+  );
+
+  return {
+    logsDeleted: logsResult.changes,
+    sessionsDeleted: sessionsResult.changes,
+  };
+}
+
 // --- Session Operations ---
 
 /**
