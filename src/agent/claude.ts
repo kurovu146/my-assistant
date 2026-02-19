@@ -68,6 +68,7 @@ export interface AgentResponse {
   toolsUsed: string[]; // Tools Claude đã dùng (Read, Bash, WebSearch...)
   usage?: UsageStats; // Token usage stats
   error?: string; // Lỗi nếu có
+  model?: string; // Model đã dùng (smart routing)
 }
 
 // --- Cumulative usage tracking ---
@@ -193,6 +194,7 @@ export async function askClaude(
   onProgress?: OnProgressCallback,
   abortSignal?: AbortSignal,
   userId?: number,
+  modelOverride?: string,
 ): Promise<AgentResponse> {
   const toolsUsed: string[] = [];
   const textParts: string[] = [];
@@ -219,8 +221,8 @@ export async function askClaude(
     const stream = query({
       prompt: enrichedPrompt,
       options: {
-        // Model — Max plan dùng được tất cả
-        model: config.claudeModel,
+        // Model — Smart Routing hoặc config mặc định
+        model: modelOverride || config.claudeModel,
 
         // System prompt — CLAUDE.md + skills/
         ...(systemPrompt
@@ -263,8 +265,8 @@ export async function askClaude(
         // Vì chat qua Telegram, không thể hỏi "cho phép không?"
         permissionMode: "bypassPermissions",
 
-        // Giới hạn số vòng agent loop — tránh chạy quá lâu
-        maxTurns: config.maxTurns,
+        // Giới hạn số vòng agent loop — Haiku chỉ cần 5, còn lại dùng config
+        maxTurns: modelOverride?.includes("haiku") ? 5 : config.maxTurns,
 
         // Resume phiên cũ nếu có sessionId
         ...(sessionId ? { resume: sessionId } : {}),
@@ -343,6 +345,7 @@ export async function askClaude(
       sessionId: resolvedSessionId,
       toolsUsed: [...new Set(toolsUsed)], // Loại bỏ trùng
       usage,
+      model: modelOverride || config.claudeModel,
     };
   } catch (error) {
     // Handle abort gracefully — phân biệt timeout vs user abort

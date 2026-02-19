@@ -29,6 +29,9 @@ export const config = {
   // Agent tuning — 30 turns đủ cho task phức tạp (research, multi-file)
   maxTurns: parseInt(process.env.CLAUDE_MAX_TURNS || "30"),
 
+  // Smart Routing — route query tới model tối ưu (Haiku/Sonnet/Opus)
+  smartRouting: process.env.SMART_ROUTING !== "false",
+
   // Session
   sessionTimeoutHours: parseInt(process.env.SESSION_TIMEOUT_HOURS || "72"),
 };

@@ -143,6 +143,11 @@ db.run(`
 // Rebuild FTS5 index — đồng bộ data cũ (chạy 1 lần, nhanh với vài trăm rows)
 db.run(`INSERT OR IGNORE INTO memory_facts_fts(memory_facts_fts) VALUES('rebuild')`);
 
+// Migrate: thêm cột model vào query_logs cho Smart Routing analytics
+try {
+  db.run(`ALTER TABLE query_logs ADD COLUMN model TEXT NOT NULL DEFAULT ''`);
+} catch (_) { /* column already exists */ }
+
 // --- Memory Operations ---
 
 export interface MemoryFact {
@@ -410,10 +415,11 @@ export function logQuery(
   tokensOut: number,
   costUsd: number,
   toolsUsed: string[],
+  model: string = "",
 ): void {
   db.run(
-    `INSERT INTO query_logs (user_id, prompt_preview, response_time_ms, tokens_in, tokens_out, cost_usd, tools_used, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO query_logs (user_id, prompt_preview, response_time_ms, tokens_in, tokens_out, cost_usd, tools_used, model, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       userId,
       promptPreview.slice(0, 50),
@@ -422,6 +428,7 @@ export function logQuery(
       tokensOut,
       costUsd,
       toolsUsed.join(","),
+      model,
       Date.now(),
     ],
   );
@@ -566,12 +573,13 @@ export function createSession(
   userId: number,
   sessionId: string,
   title: string = "Phiên mới",
+  model?: string,
 ): Session {
   const now = Date.now();
   const session: Session = {
     userId,
     sessionId,
-    model: config.claudeModel,
+    model: model || config.claudeModel,
     createdAt: now,
     lastActiveAt: now,
     title,

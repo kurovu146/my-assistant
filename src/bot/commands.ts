@@ -177,7 +177,7 @@ export async function handleStatus(ctx: Context): Promise<void> {
     `📊 Trạng thái\n\n` +
       `${statusText}\n` +
       `⏱ Uptime: ${uptime}\n\n` +
-      `🤖 Model: ${config.claudeModel}\n` +
+      `🤖 Model: ${config.claudeModel}${config.smartRouting ? " (Smart Routing)" : ""}\n` +
       `🔑 Auth: ${config.authMode}\n` +
       `📂 Workspace: ${config.claudeWorkingDir}\n` +
       `${skillInfo}\n\n` +

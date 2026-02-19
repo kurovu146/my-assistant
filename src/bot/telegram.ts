@@ -13,6 +13,7 @@
 import { Bot } from "grammy";
 import { config } from "../config.ts";
 import { askClaude } from "../agent/claude.ts";
+import { classifyQuery, parseModelOverride, TIER_LABELS, type RouteDecision } from "../agent/router.ts";
 import {
   getActiveSession,
   createSession,
@@ -171,10 +172,12 @@ interface StreamingOptions {
   errorLabel: string;
   /** Callback chạy sau khi hoàn thành (cleanup file, etc.) */
   onComplete?: () => Promise<void>;
+  /** Model override từ user (Smart Routing) */
+  modelOverride?: string;
 }
 
 async function handleQueryWithStreaming(options: StreamingOptions): Promise<void> {
-  const { prompt, userId, ctx, chatId, messageId, sessionTitle, errorLabel, onComplete } = options;
+  const { prompt, userId, ctx, chatId, messageId, sessionTitle, errorLabel, onComplete, modelOverride } = options;
   const startTime = Date.now();
 
   // AbortController — /stop sẽ abort signal này
@@ -229,6 +232,15 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
     const session = getActiveSession(userId);
     const sessionId = session?.sessionId;
 
+    // Smart Routing — chọn model tối ưu
+    let routeDecision: RouteDecision | null = null;
+    let selectedModel: string | undefined = modelOverride;
+
+    if (!selectedModel && config.smartRouting) {
+      routeDecision = classifyQuery(prompt, session?.model);
+      selectedModel = routeDecision.model;
+    }
+
     const response = await askClaude(
       prompt,
       sessionId,
@@ -245,6 +257,7 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
       },
       controller.signal,
       userId,
+      selectedModel,
     );
 
     // Clear typing
@@ -262,14 +275,14 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
       return;
     }
 
-    // Lưu session
+    // Lưu session (ghi model thực tế đã dùng)
     if (!session && response.sessionId) {
-      createSession(userId, response.sessionId, sessionTitle);
+      createSession(userId, response.sessionId, sessionTitle, selectedModel);
     } else if (session) {
       touchSession(userId, session.sessionId);
     }
 
-    // Log query analytics
+    // Log query analytics (kèm model)
     const responseTimeMs = Date.now() - startTime;
     logQuery(
       userId,
@@ -279,17 +292,21 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
       response.usage?.outputTokens || 0,
       response.usage?.costUSD || 0,
       response.toolsUsed,
+      response.model || "",
     );
 
     // Content filter — redact secrets trước khi gửi
     const safeText = sanitizeResponse(response.text);
 
-    // Build final response with footer (tools + time)
+    // Build final response with footer (tools + model tier + time)
     const elapsed = (responseTimeMs / 1000).toFixed(1);
     let fullResponse = safeText;
     const footerParts: string[] = [];
     if (response.toolsUsed.length > 0) {
       footerParts.push(formatToolsUsed(response.toolsUsed));
+    }
+    if (routeDecision) {
+      footerParts.push(`🧠 ${TIER_LABELS[routeDecision.tier]}`);
     }
     footerParts.push(`⏱ ${elapsed}s`);
     fullResponse += `\n\n---\n${footerParts.join("  |  ")}`;
@@ -335,8 +352,21 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
 
 async function handleTextMessage(ctx: any): Promise<void> {
   const userId = ctx.from?.id;
-  const text = ctx.message?.text;
+  let text = ctx.message?.text;
   if (userId === undefined || !text) return;
+
+  // Detect inline model override: "dùng opus ...", "use haiku ..."
+  let modelOverride: string | undefined;
+  const override = parseModelOverride(text);
+  if (override) {
+    const MODELS: Record<string, string> = {
+      haiku: "claude-haiku-4-5-20251001",
+      sonnet: "claude-sonnet-4-5-20250929",
+      opus: "claude-opus-4-6",
+    };
+    modelOverride = MODELS[override.tier];
+    text = override.rest || text; // giữ text gốc nếu chỉ có prefix
+  }
 
   // Queue: chờ tin trước xong
   withUserLock(userId, async () => {
@@ -353,6 +383,7 @@ async function handleTextMessage(ctx: any): Promise<void> {
       messageId: processingMsg.message_id,
       sessionTitle,
       errorLabel: "Đã xảy ra lỗi",
+      modelOverride,
     });
   });
 }
