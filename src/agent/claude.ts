@@ -20,16 +20,26 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { config } from "../config.ts";
-import { buildSystemPrompt } from "./skills.ts";
+import { buildSystemPrompt, setOnCacheClear } from "./skills.ts";
 import { createGmailMcpServer } from "../services/gmail.ts";
 import { createMemoryMcpServer } from "../services/memory-mcp.ts";
 import { buildMemoryContext } from "../services/memory.ts";
 
-// --- Retry with backoff (inspired by qwen-code) ---
+// --- Retry with backoff + model failover (inspired by qwen-code + OpenClaw) ---
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 2000;
 const MAX_DELAY_MS = 30_000;
+
+// Model failover chain: Opus → Sonnet → Haiku
+const FAILOVER_CHAIN: Record<string, string> = {
+  "claude-opus-4-6": "claude-sonnet-4-5-20250929",
+  "claude-sonnet-4-5-20250929": "claude-haiku-4-5-20251001",
+};
+
+function getFailoverModel(currentModel: string): string | null {
+  return FAILOVER_CHAIN[currentModel] || null;
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -72,6 +82,11 @@ export function reloadSkills(): void {
   cachedSystemPrompt = null;
   console.log("🔄 Skills cache cleared — sẽ reload lần gọi tiếp theo");
 }
+
+// Connect skill watcher → auto-clear system prompt cache
+setOnCacheClear(() => {
+  cachedSystemPrompt = null;
+});
 
 // --- Types ---
 
@@ -220,6 +235,7 @@ export async function askClaude(
   const toolsUsed: string[] = [];
   const textParts: string[] = [];
   let resolvedSessionId = sessionId || "";
+  let activeModel = modelOverride; // Track actual model (may change on failover)
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
   try {
@@ -243,8 +259,8 @@ export async function askClaude(
     const stream = query({
       prompt: enrichedPrompt,
       options: {
-        // Model — Smart Routing hoặc config mặc định
-        model: modelOverride || config.claudeModel,
+        // Model — Smart Routing hoặc config mặc định (may change on failover)
+        model: activeModel || config.claudeModel,
 
         // System prompt — CLAUDE.md + skills/
         ...(systemPrompt
@@ -288,7 +304,7 @@ export async function askClaude(
         permissionMode: "bypassPermissions",
 
         // Giới hạn số vòng agent loop — Haiku chỉ cần 5, còn lại dùng config
-        maxTurns: modelOverride?.includes("haiku") ? 5 : config.maxTurns,
+        maxTurns: (activeModel || config.claudeModel).includes("haiku") ? 5 : config.maxTurns,
 
         // Resume phiên cũ nếu có sessionId
         ...(sessionId ? { resume: sessionId } : {}),
@@ -367,7 +383,7 @@ export async function askClaude(
       sessionId: resolvedSessionId,
       toolsUsed: [...new Set(toolsUsed)], // Loại bỏ trùng
       usage,
-      model: modelOverride || config.claudeModel,
+      model: activeModel || config.claudeModel,
     };
   } catch (error) {
     // Handle abort gracefully — phân biệt timeout vs user abort
@@ -386,10 +402,22 @@ export async function askClaude(
       };
     }
 
-    // Retry with backoff cho transient errors (429, 5xx)
+    // Retry with backoff + model failover cho transient errors (429, 5xx)
     if (isRetryableError(error) && attempt < MAX_RETRIES) {
       const jitter = BASE_DELAY_MS * Math.pow(2, attempt) * (0.7 + Math.random() * 0.6);
       const delay = Math.min(jitter, MAX_DELAY_MS);
+
+      // Model failover — sau 2 lần retry cùng model, thử model nhẹ hơn
+      if (attempt >= 1) {
+        const currentModel = activeModel || config.claudeModel;
+        const fallback = getFailoverModel(currentModel);
+        if (fallback) {
+          activeModel = fallback;
+          console.log(`🔄 Failover: ${currentModel} → ${fallback}`);
+          onProgress?.({ type: "text_chunk", content: `\n🔄 Chuyển sang model backup...\n` });
+        }
+      }
+
       console.log(`⚡ Retry ${attempt + 1}/${MAX_RETRIES} sau ${Math.round(delay)}ms...`);
       onProgress?.({ type: "text_chunk", content: `\n⚡ Đang retry (${attempt + 1}/${MAX_RETRIES})...\n` });
       await sleep(delay);

@@ -48,21 +48,42 @@ function sanitizeFilename(name: string): string {
 }
 
 // ============================================================
-// Per-user message queue — tránh overlap khi gửi 2 tin liên tục
+// Lane Queue — per-user serial queue (inspired by OpenClaw)
+// ============================================================
+// Key: userId (single channel = Telegram)
+// Queue depth limit: 3 — tránh backlog quá dài
 // ============================================================
 
 const userLocks = new Map<number, Promise<void>>();
+const userQueueDepth = new Map<number, number>();
+const MAX_QUEUE_DEPTH = 3;
 
 /**
- * Queue handler per user.
- * Tin nhắn thứ 2 sẽ chờ tin 1 xong mới chạy.
+ * Queue handler per user (lane queue pattern).
+ * Tin nhắn xếp hàng, chạy tuần tự. Max 3 tin trong queue.
  */
-function withUserLock(userId: number, fn: () => Promise<void>): Promise<void> {
+function withUserLock(userId: number, fn: () => Promise<void>, onOverflow?: () => Promise<void>): Promise<void> {
+  const depth = userQueueDepth.get(userId) || 0;
+
+  // Queue overflow — quá 3 tin đang chờ
+  if (depth >= MAX_QUEUE_DEPTH) {
+    onOverflow?.();
+    return Promise.resolve();
+  }
+
+  userQueueDepth.set(userId, depth + 1);
+
   const prev = userLocks.get(userId) || Promise.resolve();
-  const current = prev.then(fn, fn); // chạy dù prev resolve hay reject
+  const current = prev.then(fn, fn);
   userLocks.set(userId, current);
-  // Cleanup khi xong
+
   current.finally(() => {
+    const d = userQueueDepth.get(userId) || 1;
+    if (d <= 1) {
+      userQueueDepth.delete(userId);
+    } else {
+      userQueueDepth.set(userId, d - 1);
+    }
     if (userLocks.get(userId) === current) {
       userLocks.delete(userId);
     }
@@ -368,7 +389,7 @@ async function handleTextMessage(ctx: any): Promise<void> {
     text = override.rest || text; // giữ text gốc nếu chỉ có prefix
   }
 
-  // Queue: chờ tin trước xong
+  // Lane queue: chờ tin trước xong, max 3 tin trong queue
   withUserLock(userId, async () => {
     await ctx.replyWithChatAction("typing");
     const processingMsg = await ctx.reply("⏳ Đang xử lý...");
@@ -385,6 +406,8 @@ async function handleTextMessage(ctx: any): Promise<void> {
       errorLabel: "Đã xảy ra lỗi",
       modelOverride,
     });
+  }, async () => {
+    await ctx.reply("⚠️ Queue đầy (đang xử lý 3 tin). Vui lòng chờ hoặc /stop.");
   });
 }
 

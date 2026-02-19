@@ -17,6 +17,7 @@ import { checkAuth } from "./agent/claude.ts";
 import { startWebMonitor, stopWebMonitor } from "./services/web-monitor.ts";
 import { startMemoryConsolidation, stopMemoryConsolidation } from "./services/memory-consolidation.ts";
 import { startNewsDigest, stopNewsDigest } from "./services/news-digest.ts";
+import { startSkillWatcher, stopSkillWatcher } from "./agent/skills.ts";
 import type { Bot } from "grammy";
 
 // Xóa CLAUDECODE để tránh "nested session" error khi chạy qua PM2
@@ -97,6 +98,9 @@ async function main() {
     startNewsDigest(sendTelegram);
   }
 
+  // 8. Start skill watcher — auto-reload khi files thay đổi
+  startSkillWatcher();
+
   console.log("✅ Bot đã sẵn sàng! Đang lắng nghe tin nhắn...\n");
 
   // 8. Bắt đầu polling
@@ -116,6 +120,7 @@ async function shutdown() {
   stopWebMonitor();
   stopMemoryConsolidation();
   stopNewsDigest();
+  stopSkillWatcher();
   if (bot) {
     await bot.stop();
   }
