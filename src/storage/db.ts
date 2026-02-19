@@ -199,6 +199,7 @@ export function saveFact(userId: number, fact: string, category: string = "gener
 /**
  * Tìm facts theo keyword — hybrid FTS5 + LIKE fallback.
  * FTS5 cho ranked results tốt hơn, LIKE fallback nếu FTS5 trả rỗng.
+ * Context enrichment: fetch thêm facts "gần" matches (cùng category, thời gian gần).
  */
 export function searchFacts(userId: number, keyword: string, limit: number = 20): MemoryFact[] {
   // FTS5 search trước — ranked by relevance (bm25)
@@ -214,8 +215,10 @@ export function searchFacts(userId: number, keyword: string, limit: number = 20)
     .all(keyword, userId, limit) as any[];
 
   if (ftsRows.length > 0) {
-    touchFactsAccess(ftsRows.map((r: any) => r.id));
-    return ftsRows.map(mapFact);
+    const matchedFacts = ftsRows.map(mapFact);
+    touchFactsAccess(matchedFacts.map((f) => f.id));
+    // Context enrichment — fetch neighbor facts
+    return enrichWithContext(userId, matchedFacts, limit);
   }
 
   // LIKE fallback — cho trường hợp keyword không match FTS syntax
@@ -230,6 +233,39 @@ export function searchFacts(userId: number, keyword: string, limit: number = 20)
     touchFactsAccess(likeRows.map((r: any) => r.id));
   }
   return likeRows.map(mapFact);
+}
+
+/**
+ * Context enrichment window — fetch facts gần matches.
+ * Khi FTS5 match fact A, fetch thêm facts cùng category + thời gian gần (±1h).
+ * Giúp reconstruct ngữ cảnh đầy đủ hơn.
+ */
+function enrichWithContext(userId: number, matchedFacts: MemoryFact[], limit: number): MemoryFact[] {
+  const matchedIds = new Set(matchedFacts.map((f) => f.id));
+  const enriched: MemoryFact[] = [...matchedFacts];
+
+  // Fetch neighbors: cùng category, created_at ±1 giờ
+  const ONE_HOUR = 60 * 60 * 1000;
+  for (const fact of matchedFacts) {
+    const neighbors = db
+      .query(
+        `SELECT * FROM memory_facts
+         WHERE user_id = ? AND category = ? AND id != ?
+           AND created_at BETWEEN ? AND ?
+         ORDER BY ABS(created_at - ?) ASC
+         LIMIT 2`,
+      )
+      .all(userId, fact.category, fact.id, fact.createdAt - ONE_HOUR, fact.createdAt + ONE_HOUR, fact.createdAt) as any[];
+
+    for (const n of neighbors) {
+      if (!matchedIds.has(n.id)) {
+        matchedIds.add(n.id);
+        enriched.push(mapFact(n));
+      }
+    }
+  }
+
+  return enriched.slice(0, limit);
 }
 
 /**

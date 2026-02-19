@@ -25,6 +25,27 @@ import { createGmailMcpServer } from "../services/gmail.ts";
 import { createMemoryMcpServer } from "../services/memory-mcp.ts";
 import { buildMemoryContext } from "../services/memory.ts";
 
+// --- Retry with backoff (inspired by qwen-code) ---
+
+const MAX_RETRIES = 3;
+const BASE_DELAY_MS = 2000;
+const MAX_DELAY_MS = 30_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    // Rate limit (429) hoặc server error (5xx)
+    if (msg.includes("429") || msg.includes("rate limit") || msg.includes("overloaded")) return true;
+    if (msg.includes("500") || msg.includes("502") || msg.includes("503") || msg.includes("529")) return true;
+    if (msg.includes("internal server error") || msg.includes("service unavailable")) return true;
+  }
+  return false;
+}
+
 // Cache system prompt — load 1 lần khi bot khởi động
 let cachedSystemPrompt: string | null = null;
 
@@ -200,6 +221,7 @@ export async function askClaude(
   const textParts: string[] = [];
   let resolvedSessionId = sessionId || "";
 
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
   try {
     // Load system prompt (CLAUDE.md + skills/)
     const systemPrompt = await getSystemPrompt();
@@ -364,6 +386,19 @@ export async function askClaude(
       };
     }
 
+    // Retry with backoff cho transient errors (429, 5xx)
+    if (isRetryableError(error) && attempt < MAX_RETRIES) {
+      const jitter = BASE_DELAY_MS * Math.pow(2, attempt) * (0.7 + Math.random() * 0.6);
+      const delay = Math.min(jitter, MAX_DELAY_MS);
+      console.log(`⚡ Retry ${attempt + 1}/${MAX_RETRIES} sau ${Math.round(delay)}ms...`);
+      onProgress?.({ type: "text_chunk", content: `\n⚡ Đang retry (${attempt + 1}/${MAX_RETRIES})...\n` });
+      await sleep(delay);
+      // Reset state cho retry
+      toolsUsed.length = 0;
+      textParts.length = 0;
+      continue; // retry loop
+    }
+
     const errMsg = error instanceof Error ? error.message : String(error);
     console.error("❌ Claude Agent error:", errMsg);
 
@@ -388,6 +423,15 @@ export async function askClaude(
       error: errMsg + hint,
     };
   }
+  } // end retry loop
+
+  // Should not reach here, but fallback
+  return {
+    text: "",
+    sessionId: resolvedSessionId,
+    toolsUsed,
+    error: "Đã retry hết số lần cho phép",
+  };
 }
 
 // --- Helper functions ---
