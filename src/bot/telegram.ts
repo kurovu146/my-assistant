@@ -293,12 +293,15 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
       } else {
         await safeEditText(ctx.api, chatId, messageId, `❌ ${errorLabel}: ${response.error}`);
       }
+      // Cleanup trước khi return sớm — tránh AbortController bị orphan
+      activeQueries.delete(userId);
+      if (onComplete) { try { await onComplete(); } catch {} }
       return;
     }
 
-    // Lưu session (ghi model thực tế đã dùng)
+    // Lưu session (ghi model thực tế đã dùng — response.model sau failover)
     if (!session && response.sessionId) {
-      createSession(userId, response.sessionId, sessionTitle, selectedModel);
+      createSession(userId, response.sessionId, sessionTitle, response.model || selectedModel);
     } else if (session) {
       touchSession(userId, session.sessionId);
     }

@@ -83,8 +83,14 @@ export async function extractFacts(
     const jsonMatch = resultText.match(/\[[\s\S]*\]/);
     if (!jsonMatch) return;
 
-    const facts = JSON.parse(jsonMatch[0]) as Array<{ fact: string; category: string }>;
-    if (!Array.isArray(facts) || facts.length === 0) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch {
+      return; // malformed JSON — skip silently
+    }
+    if (!Array.isArray(parsed) || parsed.length === 0) return;
+    const facts = parsed as Array<{ fact: string; category: string }>;
 
     // Lưu facts vào DB
     const source = userMessage.slice(0, 50);
