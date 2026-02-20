@@ -13,7 +13,7 @@
 import { Bot } from "grammy";
 import { config } from "../config.ts";
 import { askClaude } from "../agent/claude.ts";
-import { classifyQuery, parseModelOverride, TIER_LABELS, type RouteDecision } from "../agent/router.ts";
+import { parseModelOverride } from "../agent/router.ts";
 import {
   getActiveSession,
   createSession,
@@ -253,14 +253,7 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
     const session = getActiveSession(userId);
     const sessionId = session?.sessionId;
 
-    // Smart Routing — chọn model tối ưu
-    let routeDecision: RouteDecision | null = null;
-    let selectedModel: string | undefined = modelOverride;
-
-    if (!selectedModel && config.smartRouting) {
-      routeDecision = classifyQuery(prompt, session?.model);
-      selectedModel = routeDecision.model;
-    }
+    const selectedModel: string | undefined = modelOverride;
 
     const response = await askClaude(
       prompt,
@@ -328,9 +321,6 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
     const footerParts: string[] = [];
     if (response.toolsUsed.length > 0) {
       footerParts.push(formatToolsUsed(response.toolsUsed));
-    }
-    if (routeDecision) {
-      footerParts.push(`🧠 ${TIER_LABELS[routeDecision.tier]}`);
     }
     footerParts.push(`⏱ ${elapsed}s`);
     fullResponse += `\n\n---\n${footerParts.join("  |  ")}`;
