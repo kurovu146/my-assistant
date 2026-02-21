@@ -17,23 +17,10 @@ import { config } from "../config.ts";
 // Lưu timestamps request gần đây của mỗi user
 // Key: userId, Value: mảng timestamps
 
+// Circular buffer per user — O(1) memory, no cleanup needed
 const userMessageTimestamps: Map<number, number[]> = new Map();
 const RATE_LIMIT = 5;
 const RATE_WINDOW_MS = 60_000;
-const CLEANUP_INTERVAL_MS = 5 * 60_000; // Cleanup mỗi 5 phút
-
-// Auto cleanup users không hoạt động — tránh memory leak
-setInterval(() => {
-  const now = Date.now();
-  for (const [userId, timestamps] of userMessageTimestamps) {
-    const recent = timestamps.filter((t) => now - t < RATE_WINDOW_MS);
-    if (recent.length === 0) {
-      userMessageTimestamps.delete(userId);
-    } else {
-      userMessageTimestamps.set(userId, recent);
-    }
-  }
-}, CLEANUP_INTERVAL_MS);
 
 /**
  * Middleware rate limiting per user.
@@ -48,18 +35,28 @@ export function rateLimitMiddleware() {
     if (!userId) return next();
 
     const now = Date.now();
-    const timestamps = userMessageTimestamps.get(userId) || [];
-    const recent = timestamps.filter((t) => now - t < RATE_WINDOW_MS);
+    // Fixed-size array (max RATE_LIMIT entries) — no unbounded growth
+    let timestamps = userMessageTimestamps.get(userId);
+    if (!timestamps) {
+      timestamps = [];
+      userMessageTimestamps.set(userId, timestamps);
+    }
 
-    if (recent.length >= RATE_LIMIT) {
+    // Count recent messages within window
+    const recentCount = timestamps.filter((t) => now - t < RATE_WINDOW_MS).length;
+
+    if (recentCount >= RATE_LIMIT) {
       await ctx.reply(
         "Anh ơi, em cần nghỉ chút. Thử lại sau 1 phút nhé!",
       );
       return;
     }
 
-    recent.push(now);
-    userMessageTimestamps.set(userId, recent);
+    // Keep only last RATE_LIMIT timestamps (bounded)
+    timestamps.push(now);
+    if (timestamps.length > RATE_LIMIT) {
+      timestamps.shift();
+    }
     return next();
   };
 }

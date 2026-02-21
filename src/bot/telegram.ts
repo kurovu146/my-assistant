@@ -350,7 +350,9 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
 
     // Tier 1: Extract facts từ conversation (async, không block UX)
     if (!response.error) {
-      extractFacts(userId, prompt, response.text).catch(() => {});
+      extractFacts(userId, prompt, response.text).catch((err) => {
+        console.warn(`⚠️ Fact extraction failed for user ${userId}:`, err instanceof Error ? err.message : String(err));
+      });
     }
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);

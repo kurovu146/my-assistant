@@ -37,7 +37,7 @@ Output: JSON object:
 Nếu không có gì cần gộp, trả về: {"keep": [tất cả IDs], "merge": []}`;
 
 interface ConsolidationResult {
-  factsBeore: number;
+  factsBefore: number;
   factsAfter: number;
   merged: number;
   deleted: number;
@@ -53,7 +53,7 @@ export async function consolidateUserFacts(userId: number): Promise<Consolidatio
 
   // Skip nếu ít facts (không cần consolidate)
   if (facts.length < 10) {
-    return { factsBeore: beforeCount, factsAfter: beforeCount, merged: 0, deleted: 0 };
+    return { factsBefore: beforeCount, factsAfter: beforeCount, merged: 0, deleted: 0 };
   }
 
   // Prepare input cho Haiku
@@ -91,13 +91,13 @@ export async function consolidateUserFacts(userId: number): Promise<Consolidatio
     }
 
     if (!resultText.trim()) {
-      return { factsBeore: beforeCount, factsAfter: beforeCount, merged: 0, deleted: 0 };
+      return { factsBefore: beforeCount, factsAfter: beforeCount, merged: 0, deleted: 0 };
     }
 
     // Parse result
     const jsonMatch = resultText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      return { factsBeore: beforeCount, factsAfter: beforeCount, merged: 0, deleted: 0 };
+      return { factsBefore: beforeCount, factsAfter: beforeCount, merged: 0, deleted: 0 };
     }
 
     const result = JSON.parse(jsonMatch[0]) as {
@@ -106,7 +106,7 @@ export async function consolidateUserFacts(userId: number): Promise<Consolidatio
     };
 
     if (!result.merge || result.merge.length === 0) {
-      return { factsBeore: beforeCount, factsAfter: beforeCount, merged: 0, deleted: 0 };
+      return { factsBefore: beforeCount, factsAfter: beforeCount, merged: 0, deleted: 0 };
     }
 
     // Execute merges
@@ -131,14 +131,14 @@ export async function consolidateUserFacts(userId: number): Promise<Consolidatio
     );
 
     return {
-      factsBeore: beforeCount,
+      factsBefore: beforeCount,
       factsAfter: afterCount,
       merged: result.merge.length,
       deleted: totalDeleted,
     };
   } catch (error) {
     console.error("⚠️ Memory consolidation error:", error instanceof Error ? error.message : error);
-    return { factsBeore: beforeCount, factsAfter: beforeCount, merged: 0, deleted: 0 };
+    return { factsBefore: beforeCount, factsAfter: beforeCount, merged: 0, deleted: 0 };
   }
 }
 
