@@ -72,12 +72,7 @@ async function main() {
     { command: "monitors", description: "Danh sách đang theo dõi" },
   ]);
 
-  // 6. Xóa webhook cũ + drop pending updates
-  //    FIX: Khi restart (bun --watch), instance cũ có thể vẫn đang poll.
-  //    deleteWebhook ép Telegram reset polling state → instance mới poll clean.
-  await bot.api.deleteWebhook({ drop_pending_updates: true });
-
-  // 7. Start cron services
+  // 6. Start cron services
   if (config.allowedUsers.length > 0) {
     const chatId = config.allowedUsers[0]!;
     const sendTelegram = async (message: string) => {
@@ -98,17 +93,44 @@ async function main() {
     startNewsDigest(sendTelegram);
   }
 
-  // 8. Start skill watcher — auto-reload khi files thay đổi
+  // 7. Start skill watcher — auto-reload khi files thay đổi
   startSkillWatcher();
 
   console.log("✅ Bot đã sẵn sàng! Đang lắng nghe tin nhắn...\n");
 
-  // 8. Bắt đầu polling
-  bot.start({
-    onStart: (botInfo) => {
-      console.log(`🚀 @${botInfo.username} đang chạy!`);
-    },
-  });
+  // 8. Bắt đầu polling với auto-recovery
+  startPollingWithRecovery(bot);
+}
+
+// --- Polling với auto-retry ---
+// grammY polling loop crash (409 Conflict, network error...) → retry vài lần
+// Nếu vẫn fail → exit để pm2 restart clean
+const MAX_POLLING_RETRIES = 3;
+
+async function startPollingWithRecovery(bot: Bot, attempt = 0) {
+  try {
+    // Mỗi lần retry đều clear polling state, nhưng chỉ drop pending ở lần đầu
+    await bot.api.deleteWebhook({ drop_pending_updates: attempt === 0 });
+    await bot.start({
+      onStart: (botInfo) => {
+        console.log(`🚀 @${botInfo.username} đang chạy!`);
+      },
+    });
+    // bot.start() resolve = bot.stop() được gọi → graceful shutdown, không retry
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`❌ Polling crashed (attempt ${attempt + 1}/${MAX_POLLING_RETRIES + 1}): ${msg}`);
+
+    if (attempt < MAX_POLLING_RETRIES) {
+      const delay = 5000 * (attempt + 1); // 5s, 10s, 15s
+      console.log(`🔄 Retry polling in ${delay / 1000}s...`);
+      await Bun.sleep(delay);
+      return startPollingWithRecovery(bot, attempt + 1);
+    }
+
+    console.error("❌ Polling failed after retries — exiting (pm2 sẽ restart)");
+    process.exit(1);
+  }
 }
 
 // --- Xử lý tắt sạch ---

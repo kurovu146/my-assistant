@@ -119,7 +119,13 @@ export function createBot(): Bot {
   bot.on("message:photo", handlePhoto);
 
   bot.catch((err) => {
-    console.error("❌ Bot error:", err.message);
+    const msg = err.message || String(err);
+    // 409 = polling conflict → sẽ được xử lý bởi startPollingWithRecovery
+    if (msg.includes("409")) {
+      console.error("⚠️ Polling conflict (409):", msg);
+    } else {
+      console.error("❌ Bot error:", msg);
+    }
   });
 
   return bot;
