@@ -1,65 +1,17 @@
 // src/bot/middleware.ts
 // ============================================================
-// Middleware — Xác thực user và rate limiting
+// Middleware — Xác thực user
 // ============================================================
 // Middleware là gì?
 // → Hàm chạy TRƯỚC khi xử lý tin nhắn
 // → Giống bảo vệ cửa: kiểm tra trước, cho vào sau
 //
-// Flow: Tin nhắn → authMiddleware → rateLimitMiddleware → handler
+// Flow: Tin nhắn → authMiddleware → handler
 //       Nếu middleware không gọi next() → tin nhắn bị chặn
 // ============================================================
 
 import type { Context, NextFunction } from "grammy";
 import { config } from "../config.ts";
-
-// --- Rate Limiter ---
-// Lưu timestamps request gần đây của mỗi user
-// Key: userId, Value: mảng timestamps
-
-// Circular buffer per user — O(1) memory, no cleanup needed
-const userMessageTimestamps: Map<number, number[]> = new Map();
-const RATE_LIMIT = 5;
-const RATE_WINDOW_MS = 60_000;
-
-/**
- * Middleware rate limiting per user.
- *
- * Giới hạn mỗi user tối đa 5 tin nhắn trong 60 giây.
- * Nếu vượt quá → trả lời thân thiện và dừng xử lý.
- * Timestamps cũ hơn 60s tự động bị loại bỏ.
- */
-export function rateLimitMiddleware() {
-  return async (ctx: Context, next: NextFunction): Promise<void> => {
-    const userId = ctx.from?.id;
-    if (!userId) return next();
-
-    const now = Date.now();
-    // Fixed-size array (max RATE_LIMIT entries) — no unbounded growth
-    let timestamps = userMessageTimestamps.get(userId);
-    if (!timestamps) {
-      timestamps = [];
-      userMessageTimestamps.set(userId, timestamps);
-    }
-
-    // Count recent messages within window
-    const recentCount = timestamps.filter((t) => now - t < RATE_WINDOW_MS).length;
-
-    if (recentCount >= RATE_LIMIT) {
-      await ctx.reply(
-        "Anh ơi, em cần nghỉ chút. Thử lại sau 1 phút nhé!",
-      );
-      return;
-    }
-
-    // Keep only last RATE_LIMIT timestamps (bounded)
-    timestamps.push(now);
-    if (timestamps.length > RATE_LIMIT) {
-      timestamps.shift();
-    }
-    return next();
-  };
-}
 
 /**
  * Middleware xác thực user.

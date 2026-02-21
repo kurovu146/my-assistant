@@ -23,7 +23,7 @@ import {
 import { splitMessage, formatToolsUsed, TOOL_ICONS } from "./formatter.ts";
 import { sanitizeResponse } from "./content-filter.ts";
 import { extractFacts } from "../services/memory.ts";
-import { authMiddleware, rateLimitMiddleware } from "./middleware.ts";
+import { authMiddleware } from "./middleware.ts";
 import {
   handleStart,
   handleNew,
@@ -99,7 +99,6 @@ export function createBot(): Bot {
   const bot = new Bot(config.telegramToken);
 
   bot.use(authMiddleware);
-  bot.use(rateLimitMiddleware());
 
   bot.command("start", handleStart);
   bot.command("new", handleNew);
