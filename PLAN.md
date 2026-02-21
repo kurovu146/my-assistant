@@ -1,124 +1,100 @@
-# Plan: Gmail MCP Server Integration
+# Plan: Nâng cấp Kuro Bot — Học từ claude-code-templates
 
 ## Tổng quan
 
-Thêm Gmail integration cho Kuro bot bằng cách tạo **SDK MCP Server in-process** (dùng `createSdkMcpServer` + `googleapis`). Claude sẽ tự gọi Gmail tools khi cần.
+Dựa trên nghiên cứu repo `davila7/claude-code-templates` (20.7k stars), chọn lọc những tính năng phù hợp nhất để nâng cấp bot Kuro. Ưu tiên: thực dụng, không over-engineer, phù hợp Telegram bot.
 
-## Approach: SDK MCP Server (in-process)
+---
 
-**Tại sao không dùng package có sẵn?**
-- `@gongrzhe/server-gmail-autoauth-mcp` chạy qua stdio = spawn process mới mỗi query → chậm hơn
-- In-process = zero latency, full control, dễ debug
-- Dùng trực tiếp `googleapis` — official Google lib, stable
+## Phase 1: Content Filter — Security (Ưu tiên cao nhất)
 
-## Files cần tạo/sửa
+**Học từ**: `hooks/security/secret-scanner.py` — scan 40+ secret patterns
 
-### Tạo mới
-1. **`src/services/gmail.ts`** — Gmail MCP server + OAuth2 + operations
-   - `createGmailMcpServer()` — trả về MCP server instance
-   - OAuth2 client setup (dùng refresh token từ env)
-   - Tools: search, read, archive, trash, label, send
+**Vấn đề**: Hiện tại bot không kiểm tra response trước khi gửi. Nếu Claude vô tình in ra API key, password, token... sẽ gửi thẳng lên Telegram.
 
-### Sửa
-2. **`src/agent/claude.ts`** — Thêm MCP server vào `query()` options
-3. **`src/config.ts`** — Thêm Gmail config (client_id, client_secret, refresh_token)
-4. **`.env` + `.env.example`** — Thêm Gmail credentials
-5. **`skills/gmail.md`** — Skill doc để Claude biết cách dùng Gmail tools
-6. **`package.json`** — Thêm `googleapis`, `zod` dependencies
+**Implement**:
+- Tạo `src/bot/content-filter.ts`
+- Scan response text trước khi gửi, redact các pattern: AWS keys, API keys, passwords, tokens, private keys, DB connection strings
+- Cảnh báo `⚠️ Nội dung chứa thông tin nhạy cảm đã được ẩn`
+- Apply vào `handleQueryWithStreaming()` trước khi edit/send message
 
-### Setup script (one-time)
-7. **`scripts/gmail-auth.ts`** — Script chạy 1 lần để lấy refresh token qua OAuth2 flow
+**Files thay đổi**:
+- Tạo mới: `src/bot/content-filter.ts`
+- Sửa: `src/bot/telegram.ts` (gọi filter trước send)
 
-## Chi tiết implementation
+---
 
-### Step 1: Dependencies
-```bash
-bun add googleapis zod
-```
-(`zod` cần cho `createSdkMcpServer` tool schema)
+## Phase 2: New Skills — Thêm kiến thức mới
 
-### Step 2: `scripts/gmail-auth.ts` (one-time setup)
-- Đọc Client ID + Secret từ .env
-- Mở browser → Google OAuth consent → redirect về localhost
-- Nhận authorization code → exchange lấy refresh token
-- In ra refresh token → anh copy paste vào .env
-- Chỉ cần chạy 1 lần
+**Học từ**: `skills/productivity/`, `skills/ai-research/`, `skills/security/`
 
-### Step 3: `src/services/gmail.ts`
-```typescript
-// Tạo OAuth2 client từ env credentials
-// Tạo Gmail API client
-// Tạo MCP server với các tools:
+### 2a. Skill: `telegram-ux.md`
+Best practices khi trả lời trên Telegram:
+- Response dưới 4000 chars khi có thể
+- Dùng formatting hiệu quả (bold, code, list)
+- Tóm tắt trước, chi tiết sau (progressive disclosure)
+- Khi task phức tạp: báo tiến độ rõ ràng
 
-Tools:
-├── gmail_search      — Tìm email (q: Gmail search syntax, maxResults)
-├── gmail_read        — Đọc 1 email (messageId) → subject, from, date, body (text)
-├── gmail_archive     — Archive emails (messageIds[])
-├── gmail_trash       — Chuyển vào trash (messageIds[])
-├── gmail_label       — Thêm/xóa label (messageIds[], addLabels[], removeLabels[])
-├── gmail_send        — Gửi email (to, subject, body, cc?, bcc?)
-└── gmail_list_labels — Liệt kê tất cả labels
-```
+### 2b. Skill: `security-awareness.md`
+Từ security hooks + security agents:
+- Khi review code: luôn check OWASP top 10
+- Khi viết code: never hardcode secrets
+- Khi gửi output: aware của sensitive data
 
-### Step 4: `src/agent/claude.ts`
-```typescript
-// Import gmail server
-import { createGmailMcpServer } from "../services/gmail.ts";
+**Files thay đổi**: Tạo mới 2 file trong `skills/`
 
-// Trong askClaude():
-const gmailServer = createGmailMcpServer();
+---
 
-const stream = query({
-  prompt,
-  options: {
-    // ... existing options ...
-    mcpServers: {
-      ...(gmailServer ? { gmail: gmailServer } : {}),
-    },
-    allowedTools: [
-      ...existingTools,
-      "mcp__gmail__*",  // Cho phép tất cả Gmail tools
-    ],
-  },
-});
-```
+## Phase 3: Query Analytics + `/stats` Command
 
-### Step 5: Config + Env
-```env
-# === GMAIL ===
-GMAIL_CLIENT_ID=xxx.apps.googleusercontent.com
-GMAIL_CLIENT_SECRET=xxx
-GMAIL_REFRESH_TOKEN=xxx
-```
+**Học từ**: LangSmith tracing hook, command usage tracking, analytics features
 
-### Step 6: `skills/gmail.md`
-Hướng dẫn Claude cách dùng Gmail tools:
-- Khi nào search, khi nào read
-- Gmail search syntax tips
-- Batch operations
-- Safety: xác nhận trước khi xóa/send
+**Implement**:
+- Tạo bảng `query_logs` trong SQLite: timestamp, user_id, prompt_preview (50 chars), response_time_ms, tokens_in, tokens_out, cost_usd, tools_used
+- Log mỗi query sau khi hoàn thành (trong `handleQueryWithStreaming`)
+- Thêm `/stats` command: queries hôm nay, tổng tokens, tổng cost, top tools, average response time
 
-## OAuth2 Flow (one-time)
+**Files thay đổi**:
+- Sửa: `src/storage/db.ts` (thêm bảng + log/query functions)
+- Sửa: `src/bot/telegram.ts` (log sau mỗi query)
+- Sửa: `src/bot/commands.ts` (thêm `/stats` handler)
+- Sửa: `src/index.ts` (register command)
 
-1. Anh đã có Google Cloud project + credentials
-2. Chạy `bun run scripts/gmail-auth.ts`
-3. Browser mở → đăng nhập Google → cho phép
-4. Script in ra refresh token
-5. Copy paste vào `.env`
-6. Done — refresh token sống vĩnh viễn (nếu project ở production mode)
+---
 
-## Security Notes
+## Phase 4: Webpage Monitor
 
-- Refresh token chỉ lưu trong `.env` (gitignored)
-- `permissionMode: "bypassPermissions"` đã có sẵn → Gmail tools sẽ được auto-approve
-- Chỉ allowed user (anh) mới chat được với bot → safe
-- Skill doc nhắc Claude xác nhận trước khi send/delete
+**Học từ**: `cloudflare-workers/docs-monitor/` — hash-compare-notify
 
-## Test Plan
+**Implement**:
+- Tạo `src/services/web-monitor.ts`
+- Hàm `checkUrl(url)`: fetch → strip HTML → SHA-256 hash → compare with stored hash
+- Lưu hash vào SQLite table `monitored_urls`
+- Cron job (setInterval) check mỗi 30 phút
+- Nếu thay đổi → gửi Telegram notification
+- `/monitor <url>` — thêm URL để theo dõi
+- `/unmonitor <url>` — bỏ theo dõi
+- `/monitors` — list URLs đang monitor
 
-1. Build check: `bun typecheck`
-2. Manual test qua Telegram:
-   - "Kiểm tra gmail có bao nhiêu mail chưa đọc"
-   - "Đọc mail mới nhất"
-   - "Archive tất cả email quảng cáo"
-   - "Gửi mail test cho [email]"
+**Files thay đổi**:
+- Tạo mới: `src/services/web-monitor.ts`
+- Sửa: `src/storage/db.ts` (thêm bảng)
+- Sửa: `src/bot/commands.ts` (thêm commands)
+- Sửa: `src/index.ts` (start cron + register commands)
+
+---
+
+## Thứ tự triển khai
+
+1. **Phase 1**: Content Filter ← security, quan trọng nhất
+2. **Phase 2**: New Skills ← dễ nhất, chỉ thêm .md files
+3. **Phase 3**: Query Analytics ← data cho improvement
+4. **Phase 4**: Web Monitor ← bonus feature hay
+
+## Ước tính
+
+- Files mới: ~5 files
+- Files sửa: ~5 files
+- Tổng: ~500-600 dòng code mới
+- Không breaking changes
+- Không thêm dependencies mới (dùng built-in crypto, fetch, SQLite)
