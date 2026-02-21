@@ -13,7 +13,8 @@
 
 import { createBot } from "./bot/telegram.ts";
 import { config } from "./config.ts";
-import { checkAuth } from "./agent/claude.ts";
+import { createProvider } from "./agent/provider-factory.ts";
+import { registerProvider, getAgentProvider } from "./agent/provider-registry.ts";
 import { startWebMonitor, stopWebMonitor } from "./services/web-monitor.ts";
 import { startMemoryConsolidation, stopMemoryConsolidation } from "./services/memory-consolidation.ts";
 import { startNewsDigest, stopNewsDigest } from "./services/news-digest.ts";
@@ -28,10 +29,15 @@ delete process.env.CLAUDECODE;
 let bot: Bot | undefined;
 
 async function main() {
-  // 1. In thông tin cấu hình
-  console.log("🤖 Claude Telegram Agent");
+  // 1. Khởi tạo provider
+  const provider = await createProvider(config.agentProvider);
+  registerProvider(provider);
+
+  // 2. In thông tin cấu hình
+  console.log("🤖 Telegram Agent");
   console.log("========================");
-  console.log(`📍 Model:     ${config.claudeModel}`);
+  console.log(`🔌 Provider:  ${config.agentProvider}`);
+  console.log(`📍 Model:     ${config.agentModel || config.claudeModel}`);
   console.log(`📂 Workspace: ${config.claudeWorkingDir}`);
   console.log(`🔑 Auth:      ${config.authMode}`);
   console.log(
@@ -43,21 +49,21 @@ async function main() {
   );
   console.log("========================\n");
 
-  // 2. Kiểm tra auth — dừng sớm nếu chưa login
-  const auth = await checkAuth();
+  // 3. Kiểm tra auth — dừng sớm nếu chưa login
+  const auth = await getAgentProvider().checkAuth();
   console.log(`🔐 ${auth.message}\n`);
   if (!auth.ok) {
     process.exit(1);
   }
 
-  // 3. Tạo thư mục uploads nếu chưa có
+  // 4. Tạo thư mục uploads nếu chưa có
   const uploadDir = `${config.claudeWorkingDir}/.telegram-uploads`;
   await Bun.write(`${uploadDir}/.gitkeep`, "");
 
-  // 4. Tạo bot
+  // 5. Tạo bot
   bot = createBot();
 
-  // 5. Đăng ký menu commands trong Telegram
+  // 6. Đăng ký menu commands trong Telegram
   //    User sẽ thấy danh sách lệnh khi gõ /
   await bot.api.setMyCommands([
     { command: "start", description: "Bắt đầu / Hướng dẫn" },
@@ -72,7 +78,7 @@ async function main() {
     { command: "monitors", description: "Danh sách đang theo dõi" },
   ]);
 
-  // 6. Start cron services
+  // 7. Start cron services
   if (config.allowedUsers.length > 0) {
     const chatId = config.allowedUsers[0]!;
     const sendTelegram = async (message: string) => {
@@ -93,12 +99,12 @@ async function main() {
     startNewsDigest(sendTelegram);
   }
 
-  // 7. Start skill watcher — auto-reload khi files thay đổi
+  // 8. Start skill watcher — auto-reload khi files thay đổi
   startSkillWatcher();
 
   console.log("✅ Bot đã sẵn sàng! Đang lắng nghe tin nhắn...\n");
 
-  // 8. Bắt đầu polling với auto-recovery
+  // 9. Bắt đầu polling với auto-recovery
   startPollingWithRecovery(bot);
 }
 

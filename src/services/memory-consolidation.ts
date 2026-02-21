@@ -8,7 +8,7 @@
 // Chạy cron mỗi ngày 1 lần (2h sáng VN = 19:00 UTC).
 // ============================================================
 
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { getCompletionProvider } from "../agent/provider-registry.ts";
 import { getUserFacts, saveFact, deleteFact, countFacts, cleanupOldData } from "../storage/db.ts";
 
 const CONSOLIDATION_PROMPT = `Bạn là bộ tối ưu hóa bộ nhớ. Nhiệm vụ: gộp các facts trùng lặp hoặc tương tự thành facts ngắn gọn hơn.
@@ -65,32 +65,12 @@ export async function consolidateUserFacts(userId: number): Promise<Consolidatio
   }));
 
   try {
-    const stream = query({
+    const resultText = await getCompletionProvider().complete({
       prompt: JSON.stringify(input),
-      options: {
-        model: "claude-haiku-4-5-20251001",
-        systemPrompt: CONSOLIDATION_PROMPT,
-        maxTurns: 1,
-        allowedTools: [],
-        permissionMode: "bypassPermissions",
-      },
+      systemPrompt: CONSOLIDATION_PROMPT,
     });
 
-    let resultText = "";
-    for await (const message of stream) {
-      if (message.type === "assistant" && message.message?.content) {
-        for (const block of message.message.content) {
-          if ((block as any).type === "text") {
-            resultText += (block as any).text;
-          }
-        }
-      }
-      if (message.type === "result" && "result" in message && message.result) {
-        if (!resultText) resultText = message.result;
-      }
-    }
-
-    if (!resultText.trim()) {
+    if (!resultText) {
       return { factsBefore: beforeCount, factsAfter: beforeCount, merged: 0, deleted: 0 };
     }
 

@@ -12,8 +12,8 @@
 
 import { Bot } from "grammy";
 import { config } from "../config.ts";
-import { askClaude } from "../agent/claude.ts";
-import { parseModelOverride } from "../agent/router.ts";
+import { getAgentProvider } from "../agent/provider-registry.ts";
+import { parseModelOverride, resolveModelTier } from "../agent/router.ts";
 import {
   getActiveSession,
   createSession,
@@ -260,10 +260,10 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
 
     const selectedModel: string | undefined = modelOverride;
 
-    const response = await askClaude(
+    const response = await getAgentProvider().query({
       prompt,
       sessionId,
-      async (update) => {
+      onProgress: async (update) => {
         if (update.type === "text_chunk") {
           streamedText += update.content;
           currentTool = ""; // text mới → clear tool indicator
@@ -274,10 +274,10 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
           flushStream().catch(() => {});
         }
       },
-      controller.signal,
+      abortSignal: controller.signal,
       userId,
-      selectedModel,
-    );
+      modelOverride: selectedModel,
+    });
 
     // Clear typing
     clearInterval(typingInterval);
@@ -376,16 +376,11 @@ async function handleTextMessage(ctx: any): Promise<void> {
   let text = ctx.message?.text;
   if (userId === undefined || !text) return;
 
-  // Detect inline model override: "dùng opus ...", "use haiku ..."
+  // Detect inline model override: "dùng opus ...", "use fast ..."
   let modelOverride: string | undefined;
   const override = parseModelOverride(text);
   if (override) {
-    const MODELS: Record<string, string> = {
-      haiku: "claude-haiku-4-5-20251001",
-      sonnet: "claude-sonnet-4-6",
-      opus: "claude-opus-4-6",
-    };
-    modelOverride = MODELS[override.tier];
+    modelOverride = resolveModelTier(override.tier);
     text = override.rest || text; // giữ text gốc nếu chỉ có prefix
   }
 

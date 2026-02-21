@@ -11,7 +11,7 @@
 // → Claude chủ động gọi memory_save, memory_search...
 // ============================================================
 
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { getCompletionProvider } from "../agent/provider-registry.ts";
 import { getUserFacts, saveFact, type MemoryFact } from "../storage/db.ts";
 
 // --- Fact Extraction (Tier 1) ---
@@ -52,32 +52,12 @@ export async function extractFacts(
 
     const conversationContext = `User: ${truncatedUser}\n\nAssistant: ${truncatedAssistant}`;
 
-    const stream = query({
+    const resultText = await getCompletionProvider().complete({
       prompt: conversationContext,
-      options: {
-        model: "claude-haiku-4-5-20251001",
-        systemPrompt: EXTRACT_PROMPT,
-        maxTurns: 1,
-        allowedTools: [],
-        permissionMode: "bypassPermissions",
-      },
+      systemPrompt: EXTRACT_PROMPT,
     });
 
-    let resultText = "";
-    for await (const message of stream) {
-      if (message.type === "assistant" && message.message?.content) {
-        for (const block of message.message.content) {
-          if ((block as any).type === "text") {
-            resultText += (block as any).text;
-          }
-        }
-      }
-      if (message.type === "result" && "result" in message && message.result) {
-        if (!resultText) resultText = message.result;
-      }
-    }
-
-    if (!resultText.trim()) return;
+    if (!resultText) return;
 
     // Parse JSON — tìm array trong response
     const jsonMatch = resultText.match(/\[[\s\S]*\]/);

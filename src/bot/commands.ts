@@ -26,7 +26,7 @@ import {
 } from "../storage/db.ts";
 import { timeAgo, TOOL_ICONS } from "./formatter.ts";
 import { config } from "../config.ts";
-import { reloadSkills } from "../agent/claude.ts";
+import { getAgentProvider } from "../agent/provider-registry.ts";
 import { getSkillCount } from "../agent/skills.ts";
 
 // Bot start time — để tính uptime
@@ -177,7 +177,8 @@ export async function handleStatus(ctx: Context): Promise<void> {
     `📊 Trạng thái\n\n` +
       `${statusText}\n` +
       `⏱ Uptime: ${uptime}\n\n` +
-      `🤖 Model: ${config.claudeModel}\n` +
+      `🔌 Provider: ${config.agentProvider}\n` +
+      `🤖 Model: ${config.agentModel || config.claudeModel}\n` +
       `🔑 Auth: ${config.authMode}\n` +
       `📂 Workspace: ${config.claudeWorkingDir}\n` +
       `${skillInfo}\n\n` +
@@ -205,7 +206,7 @@ function formatTokenCount(tokens: number): string {
  * /reload — Reload skills mà không cần restart bot
  */
 export async function handleReload(ctx: Context): Promise<void> {
-  reloadSkills();
+  getAgentProvider().reloadSkills();
   await ctx.reply("🔄 Skills đã được reload! Thay đổi sẽ có hiệu lực từ tin nhắn tiếp theo.");
 }
 
