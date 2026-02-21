@@ -92,7 +92,7 @@ src/
 ├── bot/
 │   ├── telegram.ts           # Message handlers, streaming UX, queue
 │   ├── commands.ts           # 10 bot commands
-│   ├── middleware.ts         # Auth + rate limiting
+│   ├── middleware.ts         # Auth (whitelist)
 │   ├── formatter.ts          # Message splitting & formatting
 │   └── content-filter.ts    # Secret redaction (15+ patterns)
 ├── storage/
