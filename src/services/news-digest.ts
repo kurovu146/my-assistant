@@ -9,7 +9,7 @@
 // Chạy cron mỗi ngày 8h sáng VN (1:00 UTC).
 // ============================================================
 
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { getCompletionProvider } from "../agent/provider-registry.ts";
 
 const DIGEST_PROMPT = `Bạn là trợ lý AI tóm tắt tin tức công nghệ. Phân tích danh sách bài viết và tạo bản tin ngắn gọn.
 
@@ -163,32 +163,12 @@ async function generateDigest(items: NewsItem[]): Promise<string> {
     .join("\n\n");
 
   try {
-    const stream = query({
+    const resultText = await getCompletionProvider().complete({
       prompt: input,
-      options: {
-        model: "claude-haiku-4-5-20251001",
-        systemPrompt: DIGEST_PROMPT,
-        maxTurns: 1,
-        allowedTools: [],
-        permissionMode: "bypassPermissions",
-      },
+      systemPrompt: DIGEST_PROMPT,
     });
 
-    let resultText = "";
-    for await (const message of stream) {
-      if (message.type === "assistant" && message.message?.content) {
-        for (const block of message.message.content) {
-          if ((block as any).type === "text") {
-            resultText += (block as any).text;
-          }
-        }
-      }
-      if (message.type === "result" && "result" in message && message.result) {
-        if (!resultText) resultText = message.result;
-      }
-    }
-
-    return resultText.trim();
+    return resultText;
   } catch (error) {
     console.error("⚠️ News digest error:", error instanceof Error ? error.message : error);
     // Fallback: raw list
