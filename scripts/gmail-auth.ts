@@ -54,8 +54,12 @@ console.log("");
 console.log(authUrl);
 console.log("");
 
-// Mở browser
-Bun.spawn(["open", authUrl]);
+// Mở browser (skip nếu không có GUI — VPS headless)
+try {
+  Bun.spawn(["open", authUrl]);
+} catch {
+  // Không có browser trên server — user tự mở URL
+}
 
 // Start local server để nhận callback
 const server = createServer(async (req, res) => {
