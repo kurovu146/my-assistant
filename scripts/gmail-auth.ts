@@ -1,12 +1,13 @@
 #!/usr/bin/env bun
 // scripts/gmail-auth.ts
 // ============================================================
-// One-time script: Lấy Gmail refresh token qua OAuth2 flow
+// One-time script: Lấy Gmail/Sheets refresh token qua OAuth2 flow
 //
 // CÁCH DÙNG:
 //   1. Tạo OAuth2 credentials ở Google Cloud Console
 //      → APIs & Services → Credentials → OAuth 2.0 Client IDs
-//      → Application type: Desktop app
+//      → Application type: Web application
+//      → Authorized redirect URIs: http://localhost:3000/callback
 //   2. Set env variables:
 //      export GMAIL_CLIENT_ID=xxx.apps.googleusercontent.com
 //      export GMAIL_CLIENT_SECRET=xxx
@@ -20,7 +21,7 @@ import { createServer } from "http";
 
 const CLIENT_ID = process.env.GMAIL_CLIENT_ID;
 const CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET;
-const REDIRECT_PORT = 3847;
+const REDIRECT_PORT = 3000;
 const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/callback`;
 
 if (!CLIENT_ID || !CLIENT_SECRET) {
@@ -42,24 +43,26 @@ const SCOPES = [
 const authUrl = oauth2Client.generateAuthUrl({
   access_type: "offline",
   scope: SCOPES,
-  prompt: "consent", // Force consent để luôn nhận refresh token
+  prompt: "consent",
 });
 
-console.log("🔐 Gmail OAuth2 Setup");
+console.log("🔐 Google OAuth2 Setup (Gmail + Sheets)");
 console.log("=".repeat(50));
 console.log("");
-console.log("Đang mở browser...");
-console.log("Nếu browser không tự mở, truy cập URL sau:");
+console.log("Truy cập URL sau để authorize:");
 console.log("");
 console.log(authUrl);
 console.log("");
 
-// Mở browser (skip nếu không có GUI — VPS headless)
+// Mở browser (macOS only)
 try {
   Bun.spawn(["open", authUrl]);
+  console.log("(Browser đã mở tự động)");
 } catch {
-  // Không có browser trên server — user tự mở URL
+  console.log("(Mở URL trên browser thủ công)");
 }
+
+console.log("");
 
 // Start local server để nhận callback
 const server = createServer(async (req, res) => {
@@ -127,6 +130,6 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(REDIRECT_PORT, () => {
-  console.log(`⏳ Đang chờ Google callback trên port ${REDIRECT_PORT}...`);
+server.listen(REDIRECT_PORT, "127.0.0.1", () => {
+  console.log(`⏳ Đang chờ callback trên http://localhost:${REDIRECT_PORT}/callback ...`);
 });
