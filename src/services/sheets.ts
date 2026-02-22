@@ -75,13 +75,12 @@ function formatAsTable(values: string[][]): string {
   // Cap column widths at 40 chars
   const cappedWidths = colWidths.map((w) => Math.min(w, 40));
 
+  const numCols = colWidths.length;
   const formatRow = (row: string[]) =>
-    row
-      .map((cell, i) => {
-        const s = (cell || "").slice(0, 40);
-        return s.padEnd(cappedWidths[i] || 3);
-      })
-      .join(" | ");
+    Array.from({ length: numCols }, (_, i) => {
+      const s = (row[i] || "").slice(0, 40);
+      return s.padEnd(cappedWidths[i] || 3);
+    }).join(" | ");
 
   const lines: string[] = [];
   lines.push(formatRow(values[0]));
@@ -183,7 +182,7 @@ export function createSheetsMcpServer() {
             .string()
             .describe("A1 notation range (e.g. 'Sheet1!A1:C3', 'Sheet1!A1')"),
           values: z
-            .array(z.array(z.string()))
+            .array(z.array(z.union([z.string(), z.number()]).transform(String)))
             .describe("2D array of values — mỗi inner array là 1 row"),
         },
         async (args) => {
@@ -203,7 +202,7 @@ export function createSheetsMcpServer() {
             content: [
               {
                 type: "text",
-                text: `✅ Đã ghi ${res.data.updatedRows} rows x ${res.data.updatedColumns} cols vào ${args.range}`,
+                text: `✅ Đã ghi ${res.data.updatedRows ?? "?"} rows x ${res.data.updatedColumns ?? "?"} cols vào ${args.range}`,
               },
             ],
           };
@@ -222,7 +221,7 @@ export function createSheetsMcpServer() {
             .string()
             .describe("Sheet name hoặc range (e.g. 'Sheet1', 'Sheet1!A:Z')"),
           values: z
-            .array(z.array(z.string()))
+            .array(z.array(z.union([z.string(), z.number()]).transform(String)))
             .describe("2D array of values — mỗi inner array là 1 row"),
         },
         async (args) => {
