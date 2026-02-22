@@ -9,6 +9,7 @@ import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { config } from "../../config.ts";
 import { buildSystemPrompt, setOnCacheClear } from "../skills.ts";
 import { createGmailMcpServer } from "../../services/gmail.ts";
+import { createSheetsMcpServer } from "../../services/sheets.ts";
 import { createMemoryMcpServer } from "../../services/memory-mcp.ts";
 import { buildMemoryContext } from "../../services/memory.ts";
 import type {
@@ -57,6 +58,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
 
   private cachedSystemPrompt: string | null = null;
   private gmailMcp: ReturnType<typeof createGmailMcpServer>;
+  private sheetsMcp: ReturnType<typeof createSheetsMcpServer>;
   private cumulativeUsage: CumulativeUsage = {
     totalInputTokens: 0,
     totalOutputTokens: 0,
@@ -66,6 +68,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
 
   constructor() {
     this.gmailMcp = createGmailMcpServer();
+    this.sheetsMcp = createSheetsMcpServer();
     setOnCacheClear(() => {
       this.cachedSystemPrompt = null;
     });
@@ -184,6 +187,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
             ...(config.cliPath ? { pathToClaudeCodeExecutable: config.cliPath } : {}),
             mcpServers: {
               ...(this.gmailMcp ? { gmail: this.gmailMcp } : {}),
+              ...(this.sheetsMcp ? { sheets: this.sheetsMcp } : {}),
               ...(memoryMcp ? { memory: memoryMcp } : {}),
             },
             allowedTools: [
@@ -195,6 +199,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
               "WebSearch",
               "WebFetch",
               ...(this.gmailMcp ? ["mcp__gmail__*"] : []),
+              ...(this.sheetsMcp ? ["mcp__sheets__*"] : []),
               ...(memoryMcp ? ["mcp__memory__*"] : []),
             ],
             permissionMode: "bypassPermissions",

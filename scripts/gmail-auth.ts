@@ -33,8 +33,11 @@ if (!CLIENT_ID || !CLIENT_SECRET) {
 
 const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
 
-// Scope: gmail.modify cho read + write (không cần full access)
-const SCOPES = ["https://www.googleapis.com/auth/gmail.modify"];
+// Scopes: Gmail modify + Google Sheets read/write
+const SCOPES = [
+  "https://www.googleapis.com/auth/gmail.modify",
+  "https://www.googleapis.com/auth/spreadsheets",
+];
 
 const authUrl = oauth2Client.generateAuthUrl({
   access_type: "offline",
