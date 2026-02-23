@@ -199,4 +199,4 @@ pm2 startup  # auto-start khi reboot
 
 ## License
 
-Private project.
+MIT
