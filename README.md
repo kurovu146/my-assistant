@@ -217,21 +217,25 @@ bun install
 - `skills/` — them/bot skills phu hop voi persona
 - `ecosystem.config.cjs` — doi `name` va them `CLAUDE_CONFIG_DIR`
 
-3. **Session isolation** — tranh 2 bot conflict:
+3. **ecosystem.config.cjs** — set env truc tiep (PM2 env override .env file):
 ```javascript
 // ecosystem.config.cjs
 env: {
-  CLAUDE_CONFIG_DIR: "/home/user/.claude-judy",  // tach rieng
+  TELEGRAM_BOT_TOKEN: "your-judy-bot-token",
+  TELEGRAM_ALLOWED_USERS: "user_id_1,user_id_2",
   CLAUDE_MODEL: "claude-sonnet-4-6",
+  CLAUDE_WORKING_DIR: "/home/user/JudyBot",
+  CLAUDE_CONFIG_DIR: "/home/user/.claude-judy",
 }
 ```
-Copy credentials sang config dir moi:
+
+4. **Session isolation** — copy credentials sang config dir moi:
 ```bash
 mkdir -p /home/user/.claude-judy
 cp ~/.claude/.credentials.json /home/user/.claude-judy/
 ```
 
-4. **Start**:
+5. **Start**:
 ```bash
 pm2 start ecosystem.config.cjs
 pm2 save
@@ -242,6 +246,7 @@ pm2 save
 - Moi bot can **Telegram token rieng** (tao qua @BotFather)
 - Cung 1 Claude subscription (Max/Pro) — dung chung credentials
 - `CLAUDE_CONFIG_DIR` rieng de tranh ghi de session/state
+- **Quan trong**: PM2 env vars override `.env` file. Set tat ca env quan trong (`TELEGRAM_BOT_TOKEN`, `CLAUDE_MODEL`...) truc tiep trong `ecosystem.config.cjs`, khong chi dua vao `.env`
 - RAM: ~200MB/instance. VPS 2GB + swap chay 2-3 bot thoai mai
 - Cac bot **khong share** SQLite DB (sessions.db, memory) — moi instance co DB rieng
 
