@@ -21,6 +21,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod/v4";
 import { google, type gmail_v1 } from "googleapis";
+import { logger } from "../logger.ts";
 
 // --- Gmail API Client ---
 
@@ -131,7 +132,7 @@ export function createGmailMcpServer() {
     !process.env.GMAIL_CLIENT_SECRET ||
     !process.env.GMAIL_REFRESH_TOKEN
   ) {
-    console.log("⚠️ Gmail MCP: Thiếu credentials, skip Gmail integration");
+    logger.log("⚠️ Gmail MCP: Thiếu credentials, skip Gmail integration");
     return null;
   }
 

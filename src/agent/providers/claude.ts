@@ -9,6 +9,7 @@ import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { config } from "../../config.ts";
 import { buildSystemPrompt, setOnCacheClear } from "../skills.ts";
 import { createGmailMcpServer } from "../../services/gmail.ts";
+import { logger } from "../../logger.ts";
 import { createSheetsMcpServer } from "../../services/sheets.ts";
 import { createMemoryMcpServer } from "../../services/memory-mcp.ts";
 import { buildMemoryContext } from "../../services/memory.ts";
@@ -136,7 +137,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
 
   reloadSkills(): void {
     this.cachedSystemPrompt = null;
-    console.log("🔄 Skills cache cleared — sẽ reload lần gọi tiếp theo");
+    logger.log("🔄 Skills cache cleared — sẽ reload lần gọi tiếp theo");
   }
 
   // --- Usage ---
@@ -218,6 +219,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
         });
 
         let usage: UsageStats | undefined;
+        let hitMaxTurns = false;
 
         for await (const message of stream) {
           resolvedSessionId = extractSessionId(message, resolvedSessionId);
@@ -241,7 +243,13 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
                 textParts.push(message.result);
               }
               if ("error" in message && message.error) {
-                console.error("❌ Claude result error:", message.error);
+                logger.error("❌ Claude result error:", message.error);
+              }
+              // Detect max turns reached
+              const msg = message as any;
+              if (msg.subtype === "error_max_turns") {
+                hitMaxTurns = true;
+                logger.log(`⚠️ Max turns reached (${msg.num_turns} turns) — session ${resolvedSessionId}`);
               }
               usage = extractUsage(message);
               if (usage) {
@@ -262,6 +270,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
           toolsUsed: [...new Set(toolsUsed)],
           usage,
           model: activeModel || config.claudeModel,
+          hitMaxTurns,
         };
       } catch (error) {
         // Handle abort gracefully
@@ -290,12 +299,12 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
             const fallback = getFailoverModel(currentModel);
             if (fallback) {
               activeModel = fallback;
-              console.log(`🔄 Failover: ${currentModel} → ${fallback}`);
+              logger.log(`🔄 Failover: ${currentModel} → ${fallback}`);
               onProgress?.({ type: "text_chunk", content: `\n🔄 Chuyển sang model backup...\n` });
             }
           }
 
-          console.log(`⚡ Retry ${attempt + 1}/${MAX_RETRIES} sau ${Math.round(delay)}ms...`);
+          logger.log(`⚡ Retry ${attempt + 1}/${MAX_RETRIES} sau ${Math.round(delay)}ms...`);
           onProgress?.({ type: "text_chunk", content: `\n⚡ Đang retry (${attempt + 1}/${MAX_RETRIES})...\n` });
           await sleep(delay);
           toolsUsed.length = 0;
@@ -304,7 +313,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
         }
 
         const errMsg = error instanceof Error ? error.message : String(error);
-        console.error("❌ Claude Agent error:", errMsg);
+        logger.error("❌ Claude Agent error:", errMsg);
 
         let hint = "";
         if (errMsg.includes("auth") || errMsg.includes("credential") || errMsg.includes("login")) {

@@ -4,12 +4,13 @@
 // ============================================================
 
 import type { AgentProvider, CompletionProvider } from "./types.ts";
+import { logger } from "../logger.ts";
 
 let provider: (AgentProvider & CompletionProvider) | null = null;
 
 export function registerProvider(p: AgentProvider & CompletionProvider): void {
   provider = p;
-  console.log(`🔌 Provider registered: ${p.name}`);
+  logger.log(`🔌 Provider registered: ${p.name}`);
 }
 
 export function getAgentProvider(): AgentProvider {

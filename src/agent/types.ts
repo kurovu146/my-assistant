@@ -20,6 +20,8 @@ export interface AgentResponse {
   usage?: UsageStats;
   error?: string;
   model?: string;
+  /** True khi query dừng vì hết maxTurns (task chưa xong) */
+  hitMaxTurns?: boolean;
 }
 
 export interface CumulativeUsage {

@@ -10,6 +10,7 @@
 // ============================================================
 
 import { getCompletionProvider } from "../agent/provider-registry.ts";
+import { logger } from "../logger.ts";
 
 const DIGEST_PROMPT = `Bạn là trợ lý AI tóm tắt tin tức công nghệ. Phân tích danh sách bài viết và tạo bản tin ngắn gọn.
 
@@ -79,7 +80,7 @@ async function fetchHackerNews(): Promise<NewsItem[]> {
 
     return items;
   } catch (error) {
-    console.warn("⚠️ News: HN fetch error:", error instanceof Error ? error.message : error);
+    logger.warn("⚠️ News: HN fetch error:", error instanceof Error ? error.message : error);
     return [];
   }
 }
@@ -116,7 +117,7 @@ async function fetchGitHubTrending(): Promise<NewsItem[]> {
 
     return items;
   } catch (error) {
-    console.warn("⚠️ News: GitHub fetch error:", error instanceof Error ? error.message : error);
+    logger.warn("⚠️ News: GitHub fetch error:", error instanceof Error ? error.message : error);
     return [];
   }
 }
@@ -170,7 +171,7 @@ async function generateDigest(items: NewsItem[]): Promise<string> {
 
     return resultText;
   } catch (error) {
-    console.error("⚠️ News digest error:", error instanceof Error ? error.message : error);
+    logger.error("⚠️ News digest error:", error instanceof Error ? error.message : error);
     // Fallback: raw list
     return items
       .slice(0, 7)
@@ -183,14 +184,14 @@ async function generateDigest(items: NewsItem[]): Promise<string> {
  * Fetch + summarize + return digest text.
  */
 export async function createNewsDigest(): Promise<string> {
-  console.log("📰 News Digest: fetching sources...");
+  logger.log("📰 News Digest: fetching sources...");
 
   const [hnItems, ghItems] = await Promise.all([
     fetchHackerNews(),
     fetchGitHubTrending(),
   ]);
 
-  console.log(`📰 News Digest: HN=${hnItems.length}, GitHub=${ghItems.length}`);
+  logger.log(`📰 News Digest: HN=${hnItems.length}, GitHub=${ghItems.length}`);
 
   const allItems = [...hnItems, ...ghItems];
   if (allItems.length === 0) {
@@ -217,14 +218,14 @@ export function startNewsDigest(
 
   // Schedule cho 8h sáng VN (1:00 UTC) mỗi ngày
   scheduleDaily(1, 0, sendDigest);
-  console.log("📰 News Digest started (mỗi ngày 8h sáng VN)");
+  logger.log("📰 News Digest started (mỗi ngày 8h sáng VN)");
 }
 
 export function stopNewsDigest(): void {
   if (intervalId) {
     clearInterval(intervalId);
     intervalId = null;
-    console.log("📰 News Digest stopped");
+    logger.log("📰 News Digest stopped");
   }
 }
 
@@ -234,7 +235,7 @@ async function sendDigest(): Promise<void> {
     const digest = await createNewsDigest();
     await notifyFn(digest);
   } catch (error) {
-    console.error("⚠️ News digest send error:", error instanceof Error ? error.message : error);
+    logger.error("⚠️ News digest send error:", error instanceof Error ? error.message : error);
   }
 }
 
@@ -252,7 +253,7 @@ function scheduleDaily(hourUTC: number, minuteUTC: number, fn: () => void): void
   }
 
   const msUntilFirst = target.getTime() - now.getTime();
-  console.log(`📰 Next digest in ${Math.round(msUntilFirst / 60000)} minutes`);
+  logger.log(`📰 Next digest in ${Math.round(msUntilFirst / 60000)} minutes`);
 
   setTimeout(() => {
     fn();

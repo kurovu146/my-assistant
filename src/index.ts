@@ -20,6 +20,7 @@ import { startMemoryConsolidation, stopMemoryConsolidation } from "./services/me
 import { startNewsDigest, stopNewsDigest } from "./services/news-digest.ts";
 import { startSkillWatcher, stopSkillWatcher } from "./agent/skills.ts";
 import type { Bot } from "grammy";
+import { logger } from "./logger.ts";
 
 // Xóa CLAUDECODE để tránh "nested session" error khi chạy qua PM2
 // PM2 lưu env từ lần chạy trước, SDK set CLAUDECODE=1 → lần sau CLI nghĩ đang nested
@@ -30,28 +31,27 @@ let bot: Bot | undefined;
 
 async function main() {
   // 1. Khởi tạo provider
-  const provider = await createProvider(config.agentProvider);
+  const provider = await createProvider();
   registerProvider(provider);
 
   // 2. In thông tin cấu hình
-  console.log("🤖 Telegram Agent");
-  console.log("========================");
-  console.log(`🔌 Provider:  ${config.agentProvider}`);
-  console.log(`📍 Model:     ${config.agentModel || config.claudeModel}`);
-  console.log(`📂 Workspace: ${config.claudeWorkingDir}`);
-  console.log(`🔑 Auth:      ${config.authMode}`);
-  console.log(
+  logger.log("🤖 Telegram Agent");
+  logger.log("========================");
+  logger.log(`📍 Model:     ${config.claudeModel}`);
+  logger.log(`📂 Workspace: ${config.claudeWorkingDir}`);
+  logger.log(`🔑 Auth:      ${config.authMode}`);
+  logger.log(
     `👤 Users:     ${
       config.allowedUsers.length > 0
         ? config.allowedUsers.join(", ")
         : "TẤT CẢ (dev mode)"
     }`,
   );
-  console.log("========================\n");
+  logger.log("========================\n");
 
   // 3. Kiểm tra auth — dừng sớm nếu chưa login
   const auth = await getAgentProvider().checkAuth();
-  console.log(`🔐 ${auth.message}\n`);
+  logger.log(`🔐 ${auth.message}\n`);
   if (!auth.ok) {
     process.exit(1);
   }
@@ -85,7 +85,7 @@ async function main() {
       try {
         await bot!.api.sendMessage(chatId, message);
       } catch (err) {
-        console.error("❌ Notify error:", err);
+        logger.error("❌ Notify error:", err);
       }
     };
 
@@ -102,7 +102,7 @@ async function main() {
   // 8. Start skill watcher — auto-reload khi files thay đổi
   startSkillWatcher();
 
-  console.log("✅ Bot đã sẵn sàng! Đang lắng nghe tin nhắn...\n");
+  logger.log("✅ Bot đã sẵn sàng! Đang lắng nghe tin nhắn...\n");
 
   // 9. Bắt đầu polling với auto-recovery
   startPollingWithRecovery(bot);
@@ -119,22 +119,22 @@ async function startPollingWithRecovery(bot: Bot, attempt = 0) {
     await bot.api.deleteWebhook({ drop_pending_updates: attempt === 0 });
     await bot.start({
       onStart: (botInfo) => {
-        console.log(`🚀 @${botInfo.username} đang chạy!`);
+        logger.log(`🚀 @${botInfo.username} đang chạy!`);
       },
     });
     // bot.start() resolve = bot.stop() được gọi → graceful shutdown, không retry
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`❌ Polling crashed (attempt ${attempt + 1}/${MAX_POLLING_RETRIES + 1}): ${msg}`);
+    logger.error(`❌ Polling crashed (attempt ${attempt + 1}/${MAX_POLLING_RETRIES + 1}): ${msg}`);
 
     if (attempt < MAX_POLLING_RETRIES) {
       const delay = 5000 * (attempt + 1); // 5s, 10s, 15s
-      console.log(`🔄 Retry polling in ${delay / 1000}s...`);
+      logger.log(`🔄 Retry polling in ${delay / 1000}s...`);
       await Bun.sleep(delay);
       return startPollingWithRecovery(bot, attempt + 1);
     }
 
-    console.error("❌ Polling failed after retries — exiting (pm2 sẽ restart)");
+    logger.error("❌ Polling failed after retries — exiting (pm2 sẽ restart)");
     process.exit(1);
   }
 }
@@ -144,7 +144,7 @@ async function startPollingWithRecovery(bot: Bot, attempt = 0) {
 // để giải phóng polling connection → instance mới không bị 409 Conflict
 
 async function shutdown() {
-  console.log("\n👋 Đang tắt bot...");
+  logger.log("\n👋 Đang tắt bot...");
   stopWebMonitor();
   stopMemoryConsolidation();
   stopNewsDigest();
@@ -160,6 +160,6 @@ process.on("SIGTERM", shutdown);
 
 // --- Chạy ---
 main().catch((err) => {
-  console.error("❌ Fatal error:", err);
+  logger.error("❌ Fatal error:", err);
   process.exit(1);
 });

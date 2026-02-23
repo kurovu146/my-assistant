@@ -24,6 +24,7 @@ import { splitMessage, formatToolsUsed, TOOL_ICONS } from "./formatter.ts";
 import { sanitizeResponse } from "./content-filter.ts";
 import { extractFacts } from "../services/memory.ts";
 import { authMiddleware } from "./middleware.ts";
+import { logger } from "../logger.ts";
 import {
   handleStart,
   handleNew,
@@ -121,9 +122,9 @@ export function createBot(): Bot {
     const msg = err.message || String(err);
     // 409 = polling conflict → sẽ được xử lý bởi startPollingWithRecovery
     if (msg.includes("409")) {
-      console.error("⚠️ Polling conflict (409):", msg);
+      logger.error("⚠️ Polling conflict (409):", msg);
     } else {
-      console.error("❌ Bot error:", msg);
+      logger.error("❌ Bot error:", msg);
     }
   });
 
@@ -181,6 +182,9 @@ async function safeSendMessage(ctx: any, text: string): Promise<void> {
 // - Error handling + cleanup
 // ============================================================
 
+// Max số lần auto-continue khi bị hết turns giữa chừng
+const MAX_AUTO_CONTINUES = 3;
+
 interface StreamingOptions {
   /** Prompt gửi cho Claude */
   prompt: string;
@@ -200,6 +204,8 @@ interface StreamingOptions {
   onComplete?: () => Promise<void>;
   /** Model override từ user (Smart Routing) */
   modelOverride?: string;
+  /** Số lần auto-continue đã thực hiện (internal) */
+  _continueCount?: number;
 }
 
 async function handleQueryWithStreaming(options: StreamingOptions): Promise<void> {
@@ -347,15 +353,46 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
       await safeSendMessage(ctx, messages[i]!);
     }
 
+    // Auto-continue: khi bị hết maxTurns giữa chừng task → tự resume
+    const continueCount = options._continueCount || 0;
+    if (response.hitMaxTurns && response.sessionId && continueCount < MAX_AUTO_CONTINUES) {
+      logger.log(`🔄 Auto-continue (${continueCount + 1}/${MAX_AUTO_CONTINUES}) — resuming session ${response.sessionId}`);
+      const continueMsg = await ctx.reply("🔄 Đang tiếp tục xử lý...");
+
+      // Cleanup current query state trước khi continue
+      clearInterval(typingInterval);
+      activeQueries.delete(userId);
+
+      // Lưu session nếu chưa có
+      if (!session && response.sessionId) {
+        createSession(userId, response.sessionId, sessionTitle, response.model || selectedModel);
+      }
+
+      // Gọi tiếp với session hiện tại
+      await handleQueryWithStreaming({
+        prompt: "Tiếp tục task đang dở. Xem lại todo list và hoàn thành các phần còn lại.",
+        userId,
+        ctx,
+        chatId,
+        messageId: continueMsg.message_id,
+        sessionTitle,
+        errorLabel,
+        onComplete,
+        modelOverride,
+        _continueCount: continueCount + 1,
+      });
+      return; // Skip extractFacts + cleanup ở finally (đã delegate cho recursive call)
+    }
+
     // Tier 1: Extract facts từ conversation (async, không block UX)
     if (!response.error) {
       extractFacts(userId, prompt, response.text).catch((e) => {
-        console.error("⚠️ extractFacts error:", e instanceof Error ? e.message : e);
+        logger.error("⚠️ extractFacts error:", e instanceof Error ? e.message : e);
       });
     }
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
-    console.error("❌ Message handler error:", errMsg);
+    logger.error("❌ Message handler error:", errMsg);
     await safeEditText(ctx.api, chatId, messageId, `❌ ${errorLabel}: ${errMsg}`);
   } finally {
     clearInterval(typingInterval);

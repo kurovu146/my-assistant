@@ -10,6 +10,7 @@
 
 import { getCompletionProvider } from "../agent/provider-registry.ts";
 import { getUserFacts, saveFact, deleteFact, countFacts, cleanupOldData } from "../storage/db.ts";
+import { logger } from "../logger.ts";
 
 const CONSOLIDATION_PROMPT = `Bạn là bộ tối ưu hóa bộ nhớ. Nhiệm vụ: gộp các facts trùng lặp hoặc tương tự thành facts ngắn gọn hơn.
 
@@ -106,7 +107,7 @@ export async function consolidateUserFacts(userId: number): Promise<Consolidatio
     }
 
     const afterCount = countFacts(userId);
-    console.log(
+    logger.log(
       `🧹 Memory consolidation: user ${userId} — ${beforeCount} → ${afterCount} facts (merged ${result.merge.length} groups, deleted ${totalDeleted})`,
     );
 
@@ -117,7 +118,7 @@ export async function consolidateUserFacts(userId: number): Promise<Consolidatio
       deleted: totalDeleted,
     };
   } catch (error) {
-    console.error("⚠️ Memory consolidation error:", error instanceof Error ? error.message : error);
+    logger.error("⚠️ Memory consolidation error:", error instanceof Error ? error.message : error);
     return { factsBefore: beforeCount, factsAfter: beforeCount, merged: 0, deleted: 0 };
   }
 }
@@ -139,14 +140,14 @@ export function startMemoryConsolidation(userIds: number[]): void {
 
   // Cron mỗi 24h
   intervalId = setInterval(() => runConsolidation(), 24 * 60 * 60 * 1000);
-  console.log("🧹 Memory Consolidation started (mỗi 24h)");
+  logger.log("🧹 Memory Consolidation started (mỗi 24h)");
 }
 
 export function stopMemoryConsolidation(): void {
   if (intervalId) {
     clearInterval(intervalId);
     intervalId = null;
-    console.log("🧹 Memory Consolidation stopped");
+    logger.log("🧹 Memory Consolidation stopped");
   }
 }
 
@@ -154,7 +155,7 @@ async function runConsolidation(): Promise<void> {
   // Cleanup old data first
   const cleanup = cleanupOldData();
   if (cleanup.logsDeleted > 0 || cleanup.sessionsDeleted > 0) {
-    console.log(`🧹 Cleanup: deleted ${cleanup.logsDeleted} old logs, ${cleanup.sessionsDeleted} old sessions`);
+    logger.log(`🧹 Cleanup: deleted ${cleanup.logsDeleted} old logs, ${cleanup.sessionsDeleted} old sessions`);
   }
 
   // Then consolidate facts

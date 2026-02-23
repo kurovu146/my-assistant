@@ -20,6 +20,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod/v4";
 import { google, type sheets_v4 } from "googleapis";
+import { logger } from "../logger.ts";
 
 // --- Sheets API Client ---
 
@@ -101,7 +102,7 @@ export function createSheetsMcpServer() {
     !process.env.GMAIL_CLIENT_SECRET ||
     !process.env.GMAIL_REFRESH_TOKEN
   ) {
-    console.log("⚠️ Sheets MCP: Thiếu credentials, skip Google Sheets integration");
+    logger.log("⚠️ Sheets MCP: Thiếu credentials, skip Google Sheets integration");
     return null;
   }
 

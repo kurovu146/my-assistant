@@ -12,6 +12,7 @@
 
 import type { Context, NextFunction } from "grammy";
 import { config } from "../config.ts";
+import { logger } from "../logger.ts";
 
 /**
  * Middleware xác thực user.
@@ -42,7 +43,7 @@ export async function authMiddleware(
 
   // Whitelist rỗng = cho tất cả vào (dev mode)
   if (config.allowedUsers.length > 0 && !config.allowedUsers.includes(userId)) {
-    console.log(`⛔ Unauthorized: user ${userId} (${ctx.from?.username})`);
+    logger.log(`⛔ Unauthorized: user ${userId} (${ctx.from?.username})`);
     await ctx.reply("⛔ Bạn không có quyền sử dụng bot này.");
     return; // KHÔNG gọi next() → chặn tại đây
   }

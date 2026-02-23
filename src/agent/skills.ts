@@ -12,6 +12,7 @@
 import { Glob } from "bun";
 import { resolve, basename } from "path";
 import { watch } from "fs";
+import { logger } from "../logger.ts";
 
 const SKILLS_DIR = resolve(import.meta.dir, "../../skills");
 
@@ -62,7 +63,7 @@ export async function listSkillSummaries(): Promise<SkillMeta[]> {
       });
     }
   } catch (error) {
-    console.warn("⚠️ Không đọc được thư mục skills/:", error);
+    logger.warn("⚠️ Không đọc được thư mục skills/:", error);
   }
   return summaries;
 }
@@ -95,7 +96,7 @@ export async function loadSkills(): Promise<string> {
       parts.push(`<!-- skill: ${skillName} -->\n${content.trim()}`);
     }
   } catch (error) {
-    console.warn("⚠️ Không đọc được thư mục skills/:", error);
+    logger.warn("⚠️ Không đọc được thư mục skills/:", error);
   }
 
   if (parts.length === 0) return "";
@@ -124,7 +125,7 @@ export async function writeSkill(name: string, content: string): Promise<{ ok: b
     await Bun.write(filePath, content.trim() + "\n");
     clearCache();
     const action = exists ? "updated" : "created";
-    console.log(`📝 Skill ${action}: ${safeName}.md`);
+    logger.log(`📝 Skill ${action}: ${safeName}.md`);
     return { ok: true, message: `Skill "${safeName}" đã ${exists ? "cập nhật" : "tạo mới"}` };
   } catch (error) {
     return { ok: false, message: `Lỗi ghi skill: ${error instanceof Error ? error.message : error}` };
@@ -146,7 +147,7 @@ export async function deleteSkill(name: string): Promise<{ ok: boolean; message:
     const fs = await import("fs/promises");
     await fs.unlink(filePath);
     clearCache();
-    console.log(`🗑 Skill deleted: ${safeName}.md`);
+    logger.log(`🗑 Skill deleted: ${safeName}.md`);
     return { ok: true, message: `Skill "${safeName}" đã xóa` };
   } catch (error) {
     return { ok: false, message: `Lỗi xóa skill: ${error instanceof Error ? error.message : error}` };
@@ -184,7 +185,7 @@ export async function buildSystemPrompt(): Promise<string> {
   try {
     basePrompt = await Bun.file(claudeMdPath).text();
   } catch {
-    console.warn("⚠️ Không tìm thấy CLAUDE.md");
+    logger.warn("⚠️ Không tìm thấy CLAUDE.md");
   }
 
   const skills = await loadSkills();
@@ -193,7 +194,7 @@ export async function buildSystemPrompt(): Promise<string> {
 
   if (fullPrompt) {
     cachedSkillCount = skills ? skills.split("<!-- skill:").length - 1 : 0;
-    console.log(`📚 System prompt loaded (${cachedSkillCount} skills)`);
+    logger.log(`📚 System prompt loaded (${cachedSkillCount} skills)`);
   }
 
   return fullPrompt;
@@ -219,14 +220,14 @@ export function startSkillWatcher(): void {
       // Debounce 500ms — tránh reload nhiều lần khi save nhanh
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        console.log(`🔄 Skill file changed: ${filename} — auto-reloading`);
+        logger.log(`🔄 Skill file changed: ${filename} — auto-reloading`);
         clearCache();
       }, 500);
     });
 
-    console.log("👁 Skills watcher started");
+    logger.log("👁 Skills watcher started");
   } catch (error) {
-    console.warn("⚠️ Cannot watch skills directory:", error);
+    logger.warn("⚠️ Cannot watch skills directory:", error);
   }
 }
 

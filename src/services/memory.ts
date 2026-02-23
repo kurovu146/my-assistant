@@ -13,6 +13,7 @@
 
 import { getCompletionProvider } from "../agent/provider-registry.ts";
 import { getUserFacts, saveFact, type MemoryFact } from "../storage/db.ts";
+import { logger } from "../logger.ts";
 
 // --- Fact Extraction (Tier 1) ---
 
@@ -81,11 +82,11 @@ export async function extractFacts(
     }
 
     if (facts.length > 0) {
-      console.log(`🧠 Memory: extracted ${facts.length} facts for user ${userId}`);
+      logger.log(`🧠 Memory: extracted ${facts.length} facts for user ${userId}`);
     }
   } catch (error) {
     // Silent fail — extraction là optional, không nên ảnh hưởng UX
-    console.error("⚠️ Memory extraction error:", error instanceof Error ? error.message : error);
+    logger.error("⚠️ Memory extraction error:", error instanceof Error ? error.message : error);
   }
 }
 

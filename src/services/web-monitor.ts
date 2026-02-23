@@ -13,6 +13,7 @@ import {
   updateUrlHash,
   type MonitoredUrl,
 } from "../storage/db.ts";
+import { logger } from "../logger.ts";
 
 const CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30 phút
 
@@ -55,7 +56,7 @@ async function checkUrl(url: MonitoredUrl): Promise<void> {
     });
 
     if (!response.ok) {
-      console.warn(`⚠️ Monitor: ${url.url} returned ${response.status}`);
+      logger.warn(`⚠️ Monitor: ${url.url} returned ${response.status}`);
       return;
     }
 
@@ -66,13 +67,13 @@ async function checkUrl(url: MonitoredUrl): Promise<void> {
     if (url.lastHash === null) {
       // Lần đầu — lưu hash, không notify
       updateUrlHash(url.id, newHash);
-      console.log(`📡 Monitor: Saved initial hash for ${url.url}`);
+      logger.log(`📡 Monitor: Saved initial hash for ${url.url}`);
       return;
     }
 
     if (newHash !== url.lastHash) {
       updateUrlHash(url.id, newHash);
-      console.log(`📡 Monitor: Change detected at ${url.url}`);
+      logger.log(`📡 Monitor: Change detected at ${url.url}`);
 
       if (notifyFn) {
         const shortHash = (h: string) => h.slice(0, 8);
@@ -87,7 +88,7 @@ async function checkUrl(url: MonitoredUrl): Promise<void> {
     }
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
-    console.warn(`⚠️ Monitor error for ${url.url}: ${errMsg}`);
+    logger.warn(`⚠️ Monitor error for ${url.url}: ${errMsg}`);
   }
 }
 
@@ -99,7 +100,7 @@ async function checkAll(): Promise<void> {
   const urls = getMonitoredUrls();
   if (urls.length === 0) return;
 
-  console.log(`📡 Monitor: Checking ${urls.length} URLs...`);
+  logger.log(`📡 Monitor: Checking ${urls.length} URLs...`);
   const concurrency = 3;
   for (let i = 0; i < urls.length; i += concurrency) {
     const batch = urls.slice(i, i + concurrency);
@@ -121,7 +122,7 @@ export function startWebMonitor(
 
   // Cron mỗi 30 phút
   intervalId = setInterval(() => checkAll(), CHECK_INTERVAL_MS);
-  console.log("📡 Web Monitor started (check mỗi 30 phút)");
+  logger.log("📡 Web Monitor started (check mỗi 30 phút)");
 }
 
 /**
@@ -131,6 +132,6 @@ export function stopWebMonitor(): void {
   if (intervalId) {
     clearInterval(intervalId);
     intervalId = null;
-    console.log("📡 Web Monitor stopped");
+    logger.log("📡 Web Monitor stopped");
   }
 }
