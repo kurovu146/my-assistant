@@ -172,7 +172,7 @@ async function safeSendMessage(ctx: any, text: string): Promise<void> {
 // ============================================================
 
 // Max số lần auto-continue khi bị hết turns giữa chừng
-const MAX_AUTO_CONTINUES = 3;
+const MAX_AUTO_CONTINUES = 5;
 
 interface StreamingOptions {
   /** Prompt gửi cho Claude */

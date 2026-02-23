@@ -23,7 +23,7 @@ Telegram bot AI ca nhan, su dung **Claude** (Agent SDK). Gui tin nhan qua Telegr
 - **News Digest** — tom tat tin tuc hang ngay (HN + GitHub trending, 8h sang VN)
 - **Skills system** — auto-load `.md` files, hot-reload khi thay doi
 - **Content filter** — tu dong an secrets/credentials trong response
-- **Auto-continue** — tu dong tiep tuc khi het maxTurns (toi da 3 lan, 120 turns)
+- **Auto-continue** — tu dong tiep tuc khi het maxTurns (toi da 5 lan, 180 turns)
 - **Model override** — doi model tier runtime (`dung opus`, `use fast`...)
 - `/stop` — abort query dang chay
 
