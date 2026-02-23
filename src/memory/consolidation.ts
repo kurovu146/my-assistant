@@ -1,15 +1,10 @@
-// src/services/memory-consolidation.ts
+// src/memory/consolidation.ts
 // ============================================================
 // Memory Consolidation — Gộp facts trùng/tương tự bằng Haiku
 // ============================================================
-// Học từ: OpenClaw 5-tier memory, SimpleMem compression
-//
-// Flow: load all facts → group similar → Haiku merge → update DB
-// Chạy cron mỗi ngày 1 lần (2h sáng VN = 19:00 UTC).
-// ============================================================
 
-import { getCompletionProvider } from "../agent/provider-registry.ts";
-import { getUserFacts, saveFact, deleteFact, countFacts, cleanupOldData } from "../storage/db.ts";
+import { getClaudeProvider } from "../claude/provider.ts";
+import { getUserFacts, saveFact, deleteFact, countFacts, cleanupOldData } from "./repository.ts";
 import { logger } from "../logger.ts";
 
 const CONSOLIDATION_PROMPT = `Bạn là bộ tối ưu hóa bộ nhớ. Nhiệm vụ: gộp các facts trùng lặp hoặc tương tự thành facts ngắn gọn hơn.
@@ -66,7 +61,7 @@ export async function consolidateUserFacts(userId: number): Promise<Consolidatio
   }));
 
   try {
-    const resultText = await getCompletionProvider().complete({
+    const resultText = await getClaudeProvider().complete({
       prompt: JSON.stringify(input),
       systemPrompt: CONSOLIDATION_PROMPT,
     });

@@ -1,4 +1,4 @@
-// src/services/gmail.ts
+// src/mcp/gmail.ts
 // ============================================================
 // Gmail MCP Server — In-process MCP server cho Gmail operations
 //

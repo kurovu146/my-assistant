@@ -1,33 +1,17 @@
-// src/bot/commands.ts
+// src/telegram/commands.ts
 // ============================================================
 // Commands — Xử lý các lệnh Telegram
 // ============================================================
-// Telegram bot commands bắt đầu bằng /
-// User gõ /start → bot gọi handleStart()
-// User gõ /new   → bot gọi handleNew()
-// ...
-//
-// File này chỉ chứa logic xử lý lệnh.
-// Việc đăng ký lệnh nào gọi hàm nào nằm ở telegram.ts
-// ============================================================
 
 import type { Context } from "grammy";
-import {
-  clearActiveSession,
-  getActiveSession,
-  getRecentSessions,
-  setActiveSession,
-  getQueryStats,
-  addMonitoredUrl,
-  removeMonitoredUrl,
-  getUserMonitoredUrls,
-  getUserFacts,
-  countFacts,
-} from "../storage/db.ts";
+import { clearActiveSession, getActiveSession, getRecentSessions, setActiveSession } from "../db/sessions.ts";
+import { getQueryStats } from "../db/queries.ts";
+import { addMonitoredUrl, removeMonitoredUrl, getUserMonitoredUrls } from "../db/monitors.ts";
+import { getUserFacts, countFacts } from "../memory/repository.ts";
 import { timeAgo, TOOL_ICONS } from "./formatter.ts";
 import { config } from "../config.ts";
-import { getAgentProvider } from "../agent/provider-registry.ts";
-import { getSkillCount } from "../agent/skills.ts";
+import { getClaudeProvider } from "../claude/provider.ts";
+import { getSkillCount } from "../claude/skills.ts";
 
 // Bot start time — để tính uptime
 const botStartTime = Date.now();
@@ -179,7 +163,6 @@ export async function handleStatus(ctx: Context): Promise<void> {
       `⏱ Uptime: ${uptime}\n\n` +
       `🤖 Model: ${config.claudeModel}\n` +
       `🔑 Auth: ${config.authMode}\n` +
-      `📂 Workspace: ${config.claudeWorkingDir}\n` +
       `${skillInfo}\n\n` +
       `${statsInfo}\n\n` +
       `${sessionInfo}`,
@@ -205,7 +188,7 @@ function formatTokenCount(tokens: number): string {
  * /reload — Reload skills mà không cần restart bot
  */
 export async function handleReload(ctx: Context): Promise<void> {
-  getAgentProvider().reloadSkills();
+  getClaudeProvider().reloadSkills();
   await ctx.reply("🔄 Skills đã được reload! Thay đổi sẽ có hiệu lực từ tin nhắn tiếp theo.");
 }
 

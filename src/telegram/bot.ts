@@ -1,28 +1,17 @@
-// src/bot/telegram.ts
+// src/telegram/bot.ts
 // ============================================================
 // Telegram Bot — Xử lý tin nhắn và kết nối với Claude
-// ============================================================
-//
-// Optimizations:
-// - Streaming: edit progress message với text đã nhận mỗi 3s
-// - Queue: per-user lock, tin sau chờ tin trước xong
-// - Abort: truyền AbortSignal vào SDK, /stop hoạt động thật
-// - File handlers: dùng session + progress như text handler
 // ============================================================
 
 import { Bot } from "grammy";
 import { config } from "../config.ts";
-import { getAgentProvider } from "../agent/provider-registry.ts";
-import { parseModelOverride, resolveModelTier } from "../agent/router.ts";
-import {
-  getActiveSession,
-  createSession,
-  touchSession,
-  logQuery,
-} from "../storage/db.ts";
+import { getClaudeProvider } from "../claude/provider.ts";
+import { parseModelOverride, resolveModelTier } from "../claude/router.ts";
+import { getActiveSession, createSession, touchSession } from "../db/sessions.ts";
+import { logQuery } from "../db/queries.ts";
 import { splitMessage, formatToolsUsed, TOOL_ICONS } from "./formatter.ts";
 import { sanitizeResponse } from "./content-filter.ts";
-import { extractFacts } from "../services/memory.ts";
+import { extractFacts } from "../memory/extraction.ts";
 import { authMiddleware } from "./middleware.ts";
 import { logger } from "../logger.ts";
 import {
@@ -266,7 +255,7 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
 
     const selectedModel: string | undefined = modelOverride;
 
-    const response = await getAgentProvider().query({
+    const response = await getClaudeProvider().query({
       prompt,
       sessionId,
       onProgress: async (update) => {

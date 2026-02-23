@@ -1,18 +1,10 @@
-// src/services/memory.ts
+// src/memory/extraction.ts
 // ============================================================
-// Memory Service — Fact extraction + Prompt injection
-// ============================================================
-//
-// Tier 1: Passive fact extraction
-// → Sau mỗi conversation, dùng Claude (haiku) extract facts
-// → Facts lưu vào SQLite để inject vào prompt sau
-//
-// Tier 2: Active memory via MCP tools (memory-mcp.ts)
-// → Claude chủ động gọi memory_save, memory_search...
+// Memory — Fact extraction + Prompt injection
 // ============================================================
 
-import { getCompletionProvider } from "../agent/provider-registry.ts";
-import { getUserFacts, saveFact, type MemoryFact } from "../storage/db.ts";
+import { getClaudeProvider } from "../claude/provider.ts";
+import { getUserFacts, saveFact, type MemoryFact } from "./repository.ts";
 import { logger } from "../logger.ts";
 
 // --- Fact Extraction (Tier 1) ---
@@ -53,7 +45,7 @@ export async function extractFacts(
 
     const conversationContext = `User: ${truncatedUser}\n\nAssistant: ${truncatedAssistant}`;
 
-    const resultText = await getCompletionProvider().complete({
+    const resultText = await getClaudeProvider().complete({
       prompt: conversationContext,
       systemPrompt: EXTRACT_PROMPT,
     });

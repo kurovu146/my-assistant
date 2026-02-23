@@ -1,4 +1,4 @@
-// src/services/memory-mcp.ts
+// src/mcp/memory.ts
 // ============================================================
 // Memory MCP Server — Cho phép Claude chủ động đọc/ghi memory
 // ============================================================
@@ -22,9 +22,10 @@ import {
   saveFact,
   searchFacts,
   getUserFacts,
+  getFactsByCategory,
   deleteFact,
   countFacts,
-} from "../storage/db.ts";
+} from "../memory/repository.ts";
 
 /**
  * Tạo Memory MCP server cho 1 user cụ thể.
@@ -109,7 +110,7 @@ export function createMemoryMcpServer(userId: number) {
         },
         async (args) => {
           const facts = args.category
-            ? (await import("../storage/db.ts")).getFactsByCategory(userId, args.category)
+            ? getFactsByCategory(userId, args.category)
             : getUserFacts(userId, args.limit);
 
           const total = countFacts(userId);

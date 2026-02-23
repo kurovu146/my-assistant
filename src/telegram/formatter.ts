@@ -1,4 +1,4 @@
-// src/bot/formatter.ts
+// src/telegram/formatter.ts
 // ============================================================
 // Formatter — Format output cho Telegram
 // ============================================================

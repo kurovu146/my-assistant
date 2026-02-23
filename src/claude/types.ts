@@ -1,6 +1,6 @@
-// src/agent/types.ts
+// src/claude/types.ts
 // ============================================================
-// Agent Types — Shared interfaces cho multi-provider architecture
+// Claude Types — Provider interfaces
 // ============================================================
 
 // --- Response & Usage types (giữ nguyên contract từ claude.ts) ---

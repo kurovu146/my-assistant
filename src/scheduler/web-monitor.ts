@@ -1,18 +1,13 @@
-// src/services/web-monitor.ts
+// src/scheduler/web-monitor.ts
 // ============================================================
 // Web Monitor — Theo dõi thay đổi webpage, notify qua Telegram
-// ============================================================
-// Học từ: claude-code-templates/cloudflare-workers/docs-monitor
-//
-// Flow: fetch URL → strip HTML → SHA-256 hash → compare → notify
-// Chạy cron mỗi 30 phút, lưu hash trong SQLite.
 // ============================================================
 
 import {
   getMonitoredUrls,
   updateUrlHash,
   type MonitoredUrl,
-} from "../storage/db.ts";
+} from "../db/monitors.ts";
 import { logger } from "../logger.ts";
 
 const CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30 phút

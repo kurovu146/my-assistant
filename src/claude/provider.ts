@@ -1,18 +1,17 @@
-// src/agent/providers/claude.ts
+// src/claude/provider.ts
 // ============================================================
-// Claude Provider — Wraps Claude Agent SDK into AgentProvider
+// Claude Provider — Wraps Claude Agent SDK
 // ============================================================
-// Logic moved from src/agent/claude.ts (original wrapper)
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { config } from "../../config.ts";
-import { buildSystemPrompt, setOnCacheClear } from "../skills.ts";
-import { createGmailMcpServer } from "../../services/gmail.ts";
-import { logger } from "../../logger.ts";
-import { createSheetsMcpServer } from "../../services/sheets.ts";
-import { createMemoryMcpServer } from "../../services/memory-mcp.ts";
-import { buildMemoryContext } from "../../services/memory.ts";
+import { config } from "../config.ts";
+import { buildSystemPrompt, setOnCacheClear } from "./skills.ts";
+import { createGmailMcpServer } from "../mcp/gmail.ts";
+import { logger } from "../logger.ts";
+import { createSheetsMcpServer } from "../mcp/sheets.ts";
+import { createMemoryMcpServer } from "../mcp/memory.ts";
+import { buildMemoryContext } from "../memory/extraction.ts";
 import type {
   AgentProvider,
   CompletionProvider,
@@ -21,7 +20,7 @@ import type {
   CompletionOptions,
   CumulativeUsage,
   UsageStats,
-} from "../types.ts";
+} from "./types.ts";
 
 // --- Retry with backoff + model failover ---
 
@@ -185,7 +184,6 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
                 }
               : {}),
             cwd: config.claudeWorkingDir,
-            ...(config.cliPath ? { pathToClaudeCodeExecutable: config.cliPath } : {}),
             mcpServers: {
               ...(this.gmailMcp ? { gmail: this.gmailMcp } : {}),
               ...(this.sheetsMcp ? { sheets: this.sheetsMcp } : {}),
@@ -433,4 +431,16 @@ function extractUsage(message: SDKMessage): UsageStats | undefined {
   }
 
   return undefined;
+}
+
+// --- Singleton ---
+
+let _instance: ClaudeProvider | null = null;
+
+export function getClaudeProvider(): ClaudeProvider {
+  if (!_instance) {
+    _instance = new ClaudeProvider();
+    logger.log(`🔌 Claude provider initialized`);
+  }
+  return _instance;
 }

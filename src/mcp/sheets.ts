@@ -1,4 +1,4 @@
-// src/services/sheets.ts
+// src/mcp/sheets.ts
 // ============================================================
 // Google Sheets MCP Server — In-process MCP server cho Sheets
 //

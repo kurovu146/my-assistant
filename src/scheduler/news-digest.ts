@@ -1,15 +1,9 @@
-// src/services/news-digest.ts
+// src/scheduler/news-digest.ts
 // ============================================================
-// News Digest — Tóm tắt HN + GitHub trending cho anh Tuấn
-// ============================================================
-// Học từ: OpenClaw proactive agents, Moltworker news aggregation
-//
-// Flow: fetch HN front page + GitHub trending → filter AI/dev →
-//       Haiku summarize → gửi Telegram digest
-// Chạy cron mỗi ngày 8h sáng VN (1:00 UTC).
+// News Digest — Tóm tắt HN + GitHub trending
 // ============================================================
 
-import { getCompletionProvider } from "../agent/provider-registry.ts";
+import { getClaudeProvider } from "../claude/provider.ts";
 import { logger } from "../logger.ts";
 
 const DIGEST_PROMPT = `Bạn là trợ lý AI tóm tắt tin tức công nghệ. Phân tích danh sách bài viết và tạo bản tin ngắn gọn.
@@ -164,7 +158,7 @@ async function generateDigest(items: NewsItem[]): Promise<string> {
     .join("\n\n");
 
   try {
-    const resultText = await getCompletionProvider().complete({
+    const resultText = await getClaudeProvider().complete({
       prompt: input,
       systemPrompt: DIGEST_PROMPT,
     });

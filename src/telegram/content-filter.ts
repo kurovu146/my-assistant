@@ -1,4 +1,4 @@
-// src/bot/content-filter.ts
+// src/telegram/content-filter.ts
 // ============================================================
 // Content Filter — Redact sensitive data trước khi gửi Telegram
 // ============================================================
