@@ -1,35 +1,38 @@
 # my-assistant
 
-Telegram bot AI cá nhân, hỗ trợ **nhiều AI provider** (Claude, OpenAI, Gemini, Ollama, DeepSeek). Gửi tin nhắn qua Telegram, AI xử lý với streaming, memory, Gmail, web monitor...
+Telegram bot AI ca nhan, su dung **Claude** (Agent SDK). Gui tin nhan qua Telegram, AI xu ly voi streaming, tools, memory, Gmail, Google Sheets, web monitor...
 
 ## Stack
 
 - **Runtime**: [Bun](https://bun.sh)
-- **AI**: Multi-provider (Claude Agent SDK / OpenAI-compatible API)
+- **AI**: Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`)
 - **Bot**: [grammY](https://grammy.dev)
 - **DB**: SQLite (Bun built-in)
-- **Email**: Gmail API (optional, Claude provider only)
+- **MCP**: Gmail, Google Sheets, Memory
 
 ## Features
 
-- **Multi-provider** — Claude, OpenAI, Gemini, Ollama, DeepSeek (chọn 1 lúc deploy)
+- **Claude Agent SDK** — full tools (Bash, Read, Write, Edit, web search...), MCP servers, session resume
 - **Streaming responses** — real-time progress, tool indicators, typing loop
 - **Session management** — resume conversation, 72h timeout
-- **Persistent Memory** — Tier 1 (passive extraction) + Tier 2 (active MCP tools, Claude only)
-- **File & photo upload** — AI phân tích file/ảnh từ Telegram
-- **Gmail integration** — search, read, send, archive qua MCP (Claude only)
-- **Web Monitor** — theo dõi thay đổi URL (30 phút/lần)
-- **News Digest** — tóm tắt tin tức hàng ngày (HN + GitHub trending, 8h sáng VN)
-- **Skills system** — auto-load `.md` files, hot-reload khi thay đổi
-- **Content filter** — tự động ẩn secrets/credentials trong response
-- `/stop` — abort query đang chạy
+- **Persistent Memory** — Tier 1 (passive extraction) + Tier 2 (active MCP tools)
+- **File & photo upload** — AI phan tich file/anh tu Telegram
+- **Gmail integration** — search, read, send, archive qua MCP
+- **Google Sheets integration** — read, write, append qua MCP
+- **Web Monitor** — theo doi thay doi URL (30 phut/lan)
+- **News Digest** — tom tat tin tuc hang ngay (HN + GitHub trending, 8h sang VN)
+- **Skills system** — auto-load `.md` files, hot-reload khi thay doi
+- **Content filter** — tu dong an secrets/credentials trong response
+- **Auto-continue** — tu dong tiep tuc khi het maxTurns (toi da 3 lan, 120 turns)
+- **Model override** — doi model tier runtime (`dung opus`, `use fast`...)
+- `/stop` — abort query dang chay
 
 ## Setup
 
 ### Prerequisites
 
 - [Bun](https://bun.sh) >= 1.0
-- Tùy provider: Claude Code CLI, API key, hoặc Ollama server
+- Claude Code CLI (da login) hoac API key
 
 ### Install
 
@@ -38,125 +41,63 @@ bun install
 cp .env.example .env
 ```
 
-### Chọn Provider
+### Authentication
 
-Bot hỗ trợ 5 AI providers. Chọn **1 provider** duy nhất qua biến `AGENT_PROVIDER`.
+Claude ho tro 2 che do auth:
 
-#### Option 1: Claude (default)
-
-Claude có 2 chế độ auth:
-
-**a) Subscription (Max/Pro plan) — không cần API key:**
+**a) Subscription (Max/Pro plan) — khong can API key:**
 
 ```bash
 # 1. Login Claude Code CLI
 claude
 
 # 2. Config .env
-AGENT_PROVIDER=claude
 CLAUDE_MODEL=claude-opus-4-6
 ```
 
-Bot tự dùng credentials từ `~/.claude/.credentials.json`. Đây là cách khuyên dùng — không tốn tiền API, dùng quota subscription.
+Bot tu dung credentials tu `~/.claude/.credentials.json`. Day la cach khuyen dung — khong ton tien API, dung quota subscription.
 
 **b) API Key:**
 
 ```bash
-AGENT_PROVIDER=claude
 ANTHROPIC_API_KEY=sk-ant-xxx
 CLAUDE_MODEL=claude-sonnet-4-6
 ```
 
-Lấy API key tại [console.anthropic.com](https://console.anthropic.com/settings/keys). Tính phí theo token.
+Lay API key tai [console.anthropic.com](https://console.anthropic.com/settings/keys). Tinh phi theo token.
 
-> Claude là provider duy nhất hỗ trợ **tools** (đọc/ghi file, chạy lệnh, web search), **MCP** (Gmail, Memory), và **session resume** native.
-
-#### Option 2: OpenAI
-
-```bash
-AGENT_PROVIDER=openai
-AGENT_API_KEY=sk-xxx
-AGENT_MODEL=gpt-4o            # optional, default: gpt-4o
-```
-
-Lấy API key tại [platform.openai.com/api-keys](https://platform.openai.com/api-keys).
-
-#### Option 3: Gemini
-
-```bash
-AGENT_PROVIDER=gemini
-AGENT_API_KEY=AIzaSyXXX
-AGENT_MODEL=gemini-2.5-pro    # optional, default: gemini-2.5-pro
-```
-
-Lấy API key tại [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Free tier có sẵn.
-
-#### Option 4: DeepSeek
-
-```bash
-AGENT_PROVIDER=deepseek
-AGENT_API_KEY=sk-xxx
-AGENT_MODEL=deepseek-chat      # hoặc deepseek-reasoner
-```
-
-Lấy API key tại [platform.deepseek.com](https://platform.deepseek.com/api_keys).
-
-#### Option 5: Ollama (local, free)
-
-```bash
-# 1. Cài và chạy Ollama
-ollama serve
-ollama pull llama3.1
-
-# 2. Config .env
-AGENT_PROVIDER=ollama
-AGENT_MODEL=llama3.1           # optional, default: llama3.1
-AGENT_BASE_URL=http://localhost:11434   # optional, đây là default
-```
-
-Không cần API key. Chạy hoàn toàn local.
-
-### Provider feature matrix
-
-| Feature | Claude | OpenAI / Gemini / DeepSeek / Ollama |
-|---------|--------|-------------------------------------|
-| Chat + Streaming | Full | Full |
-| Tools (Bash, Read, Write...) | Full support | Không |
-| MCP (Gmail, Memory active) | Full support | Không |
-| Session resume | Native SDK | In-memory history |
-| Memory extraction | CompletionProvider | CompletionProvider |
-| Model failover | Opus → Sonnet → Haiku | Không |
-
-### Config chung
+### Config
 
 ```env
-# Working directory — hỗ trợ ~ (cross-platform Mac/Linux)
-CLAUDE_WORKING_DIR=~/projects
+# Telegram
+TELEGRAM_BOT_TOKEN=xxx
+TELEGRAM_ALLOWED_USERS=123456789    # comma-separated user IDs
+
+# Working directory
+CLAUDE_WORKING_DIR=~/dev
 
 # Session timeout
 SESSION_TIMEOUT_HOURS=72
 
-# Max agent loop iterations (Claude only)
+# Max agent loop iterations
 CLAUDE_MAX_TURNS=30
 ```
 
-### Model override (runtime)
+### Model Override (runtime)
 
-Gửi tin nhắn với prefix để đổi model tier tạm thời:
+Gui tin nhan voi prefix de doi model tier tam thoi:
 
 ```
-dùng opus review code này
-use fast dịch đoạn này
-use powerful phân tích kiến trúc
+dung opus review code nay
+use fast dich doan nay
+use powerful phan tich kien truc
 ```
 
-| Tier | Claude | OpenAI | Gemini | Ollama | DeepSeek |
-|------|--------|--------|--------|--------|----------|
-| `fast` | Haiku 4.5 | gpt-4o-mini | gemini-2.0-flash | llama3.1 | deepseek-chat |
-| `balanced` | Sonnet 4.6 | gpt-4o | gemini-2.5-pro | llama3.1 | deepseek-chat |
-| `powerful` | Opus 4.6 | gpt-4o | gemini-2.5-pro | llama3.1:70b | deepseek-reasoner |
-
-Backward compat: `dùng opus` = `use powerful`, `dùng haiku` = `use fast`.
+| Tier | Model |
+|------|-------|
+| `fast` | Haiku 4.5 |
+| `balanced` | Sonnet 4.6 |
+| `powerful` | Opus 4.6 |
 
 ### Run
 
@@ -173,83 +114,86 @@ pm2 save
 
 ```
 src/
-├── index.ts                  # Entry point, startup, cron services
-├── config.ts                 # Config loader (~/ expansion, env vars)
-├── agent/
-│   ├── types.ts              # AgentProvider & CompletionProvider interfaces
-│   ├── provider-factory.ts   # createProvider() — async factory
-│   ├── provider-registry.ts  # Singleton getAgentProvider() / getCompletionProvider()
-│   ├── claude.ts             # Facade (backward compat re-exports)
-│   ├── router.ts             # Model tier resolver (fast/balanced/powerful)
-│   ├── skills.ts             # Skills loader + hot-reload watcher
-│   └── providers/
-│       ├── claude.ts         # ClaudeProvider — full SDK (tools, MCP, sessions)
-│       ├── base-chat.ts      # BaseChatProvider — raw fetch + SSE streaming
-│       ├── openai.ts         # OpenAIProvider
-│       ├── gemini.ts         # GeminiProvider
-│       ├── ollama.ts         # OllamaProvider
-│       └── deepseek.ts       # DeepSeekProvider
-├── bot/
-│   ├── telegram.ts           # Message handlers, streaming UX, queue
-│   ├── commands.ts           # 10 bot commands
-│   ├── middleware.ts         # Auth (whitelist)
-│   ├── formatter.ts          # Message splitting & formatting
-│   └── content-filter.ts     # Secret redaction (15+ patterns)
-├── storage/
-│   └── db.ts                 # SQLite: sessions, memory, analytics, monitor
-└── services/
-    ├── gmail.ts              # Gmail MCP server (Claude only)
-    ├── memory.ts             # Tier 1: passive fact extraction
-    ├── memory-mcp.ts         # Tier 2: active memory MCP tools (Claude only)
-    ├── memory-consolidation.ts  # Daily dedup/merge facts
-    ├── news-digest.ts        # Daily HN + GitHub trending digest
-    └── web-monitor.ts        # URL change detection (hash-based)
-skills/                       # Knowledge base (.md files, auto-loaded)
+├── index.ts              # Entry point, startup, cron services
+├── config.ts             # Config loader (env vars, ~/ expansion)
+├── logger.ts             # Logger with VN timezone
+├── claude/
+│   ├── provider.ts       # ClaudeProvider + getClaudeProvider() singleton
+│   ├── router.ts         # Model tier resolver (fast/balanced/powerful)
+│   ├── skills.ts         # Skills loader + hot-reload watcher
+│   └── types.ts          # Provider interfaces
+├── telegram/
+│   ├── bot.ts            # Message handlers, streaming UX, queue
+│   ├── commands.ts       # 10 bot commands
+│   ├── middleware.ts      # Auth (whitelist)
+│   ├── formatter.ts      # Message splitting & formatting
+│   └── content-filter.ts # Secret redaction (15+ patterns)
+├── db/
+│   ├── connection.ts     # SQLite init, schema, migrations
+│   ├── sessions.ts       # Session CRUD
+│   ├── queries.ts        # Query log & analytics
+│   └── monitors.ts       # URL monitoring CRUD
+├── memory/
+│   ├── repository.ts     # Memory fact CRUD + FTS5 search
+│   ├── extraction.ts     # Tier 1: passive fact extraction
+│   └── consolidation.ts  # Daily dedup/merge facts
+├── mcp/
+│   ├── gmail.ts          # Gmail MCP server
+│   ├── sheets.ts         # Google Sheets MCP server
+│   └── memory.ts         # Tier 2: active memory MCP tools
+└── scheduler/
+    ├── news-digest.ts    # Daily HN + GitHub trending digest
+    └── web-monitor.ts    # URL change detection (hash-based)
+skills/                   # Knowledge base (.md files, auto-loaded)
 ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `/start` | Giới thiệu bot |
-| `/new` | Tạo phiên mới |
-| `/resume` | Resume phiên cũ (5 phiên gần nhất) |
-| `/stop` | Dừng query đang chạy |
-| `/status` | Provider, model, uptime, usage stats |
-| `/reload` | Reload skills không cần restart |
+| `/start` | Gioi thieu bot |
+| `/new` | Tao phien moi |
+| `/resume` | Resume phien cu (5 phien gan nhat) |
+| `/stop` | Dung query dang chay |
+| `/status` | Model, uptime, usage stats |
+| `/reload` | Reload skills khong can restart |
 | `/memory` | Xem memory facts theo category |
-| `/monitor <url> [label]` | Thêm URL vào danh sách theo dõi |
-| `/unmonitor <url>` | Xóa URL khỏi danh sách theo dõi |
-| `/monitors` | Xem danh sách URLs đang theo dõi |
+| `/monitor <url> [label]` | Them URL vao danh sach theo doi |
+| `/unmonitor <url>` | Xoa URL khoi danh sach theo doi |
+| `/monitors` | Xem danh sach URLs dang theo doi |
 
 ## Memory System
 
-**Tier 1 (Passive)** — Tự động extract facts sau mỗi hội thoại, inject vào prompt khi cần.
+**Tier 1 (Passive)** — Tu dong extract facts sau moi hoi thoai, inject vao prompt khi can.
 
-**Tier 2 (Active, Claude only)** — Claude dùng MCP tools để đọc/ghi:
-- `memory_save` — lưu fact mới
-- `memory_search` — tìm kiếm theo keyword (FTS5)
-- `memory_list` — xem tất cả facts
-- `memory_delete` — xóa fact cũ/sai
+**Tier 2 (Active)** — Claude dung MCP tools de doc/ghi:
+- `memory_save` — luu fact moi
+- `memory_search` — tim kiem theo keyword (FTS5)
+- `memory_list` — xem tat ca facts
+- `memory_delete` — xoa fact cu/sai
 
-## Gmail Setup (Optional, Claude only)
+## Gmail Setup (Optional)
 
-1. Tạo OAuth 2.0 credentials trên [Google Cloud Console](https://console.cloud.google.com)
-2. Chạy auth flow:
+1. Tao OAuth 2.0 credentials tren [Google Cloud Console](https://console.cloud.google.com)
+2. Chay auth flow:
    ```bash
    bun run scripts/gmail-auth.ts
    ```
-3. Copy refresh token vào `.env`
+3. Copy refresh token vao `.env`
+
+## Google Sheets Setup (Optional)
+
+Dung chung OAuth2 credentials voi Gmail. Neu lan dau: chay lai `bun run scripts/gmail-auth.ts` de cap them scope spreadsheets.
 
 ## Deploy
 
 ```bash
-# Lần đầu
+# Lan dau
 pm2 start ecosystem.config.cjs
 pm2 save
 pm2 startup  # auto-start khi reboot
 
-# Cập nhật
+# Cap nhat
 ./scripts/deploy.sh
 ```
 
