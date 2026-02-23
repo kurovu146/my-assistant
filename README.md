@@ -197,6 +197,54 @@ pm2 startup  # auto-start khi reboot
 ./scripts/deploy.sh
 ```
 
+## Scaling — Chay nhieu bot instances
+
+Bot nay co the clone de chay nhieu instances song song, moi instance la 1 persona/assistant rieng (VD: Kuro cho dev, Judy cho chat).
+
+### Cach lam
+
+1. **Clone project** sang folder moi:
+```bash
+cp -r my-assistant /home/user/JudyBot
+cd /home/user/JudyBot
+rm -rf .git node_modules sessions.db*
+bun install
+```
+
+2. **Customize cho instance moi**:
+- `.env` — doi `TELEGRAM_BOT_TOKEN`, `CLAUDE_MODEL`, `CLAUDE_WORKING_DIR`
+- `CLAUDE.md` — doi persona (ten, xung ho, tinh cach, chu nhan)
+- `skills/` — them/bot skills phu hop voi persona
+- `ecosystem.config.cjs` — doi `name` va them `CLAUDE_CONFIG_DIR`
+
+3. **Session isolation** — tranh 2 bot conflict:
+```javascript
+// ecosystem.config.cjs
+env: {
+  CLAUDE_CONFIG_DIR: "/home/user/.claude-judy",  // tach rieng
+  CLAUDE_MODEL: "claude-sonnet-4-6",
+}
+```
+Copy credentials sang config dir moi:
+```bash
+mkdir -p /home/user/.claude-judy
+cp ~/.claude/.credentials.json /home/user/.claude-judy/
+```
+
+4. **Start**:
+```bash
+pm2 start ecosystem.config.cjs
+pm2 save
+```
+
+### Luu y
+
+- Moi bot can **Telegram token rieng** (tao qua @BotFather)
+- Cung 1 Claude subscription (Max/Pro) — dung chung credentials
+- `CLAUDE_CONFIG_DIR` rieng de tranh ghi de session/state
+- RAM: ~200MB/instance. VPS 2GB + swap chay 2-3 bot thoai mai
+- Cac bot **khong share** SQLite DB (sessions.db, memory) — moi instance co DB rieng
+
 ## License
 
 MIT
