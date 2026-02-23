@@ -229,11 +229,15 @@ env: {
 }
 ```
 
-4. **Session isolation** — copy credentials sang config dir moi:
+4. **Session isolation** — tao config dir rieng va symlink credentials:
 ```bash
 mkdir -p /home/user/.claude-judy
-cp ~/.claude/.credentials.json /home/user/.claude-judy/
+# Symlink credentials de tu dong nhan token refresh tu instance chinh
+ln -s ~/.claude/.credentials.json /home/user/.claude-judy/.credentials.json
+cp ~/.claude/settings.json /home/user/.claude-judy/
 ```
+
+> **Tai sao symlink?** Claude OAuth token het han moi vai gio va tu dong refresh. Neu copy file, instance phu se bi `exit code 1` khi token cu het han. Symlink dam bao moi instance luon dung token moi nhat.
 
 5. **Start**:
 ```bash

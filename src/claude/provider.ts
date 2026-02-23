@@ -311,7 +311,9 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
         }
 
         const errMsg = error instanceof Error ? error.message : String(error);
+        const stack = error instanceof Error ? error.stack : undefined;
         logger.error("❌ Claude Agent error:", errMsg);
+        if (stack) logger.error("Stack:", stack);
 
         let hint = "";
         if (errMsg.includes("auth") || errMsg.includes("credential") || errMsg.includes("login")) {
@@ -319,6 +321,9 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
         }
         if (errMsg.includes("API key")) {
           hint = "\n\n💡 Đảm bảo KHÔNG set ANTHROPIC_API_KEY trong .env khi dùng subscription.";
+        }
+        if (errMsg.includes("exited with code")) {
+          hint = "\n\n💡 Claude CLI process crashed. Kiểm tra: claude auth status";
         }
 
         return {
