@@ -43,28 +43,12 @@ cp .env.example .env
 
 ### Xác thực
 
-Claude hỗ trợ 2 chế độ auth:
-
-**a) Subscription (Max/Pro plan) — không cần API key:**
-
-```bash
-# 1. Login Claude Code CLI
-claude
-
-# 2. Config .env
-CLAUDE_MODEL=claude-opus-4-6
-```
-
-Bot tự dùng credentials từ `~/.claude/.credentials.json`. Đây là cách khuyến dùng — không tốn tiền API, dùng quota subscription.
-
-**b) API Key:**
+Lấy API key tại [console.anthropic.com](https://console.anthropic.com/settings/keys) và thêm vào `.env`:
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-xxx
 CLAUDE_MODEL=claude-sonnet-4-6
 ```
-
-Lấy API key tại [console.anthropic.com](https://console.anthropic.com/settings/keys). Tính phí theo token.
 
 ### Cấu hình
 

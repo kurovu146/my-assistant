@@ -43,28 +43,12 @@ cp .env.example .env
 
 ### Authentication
 
-Claude supports 2 auth modes:
-
-**a) Subscription (Max/Pro plan) — no API key needed:**
-
-```bash
-# 1. Login Claude Code CLI
-claude
-
-# 2. Config .env
-CLAUDE_MODEL=claude-opus-4-6
-```
-
-The bot uses credentials from `~/.claude/.credentials.json`. This is the recommended approach — no API costs, uses subscription quota.
-
-**b) API Key:**
+Get your API key at [console.anthropic.com](https://console.anthropic.com/settings/keys) and add it to `.env`:
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-xxx
 CLAUDE_MODEL=claude-sonnet-4-6
 ```
-
-Get your API key at [console.anthropic.com](https://console.anthropic.com/settings/keys). Billed per token.
 
 ### Config
 
