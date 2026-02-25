@@ -83,6 +83,17 @@ use powerful analyze architecture
 | `balanced` | Sonnet 4.6 |
 | `powerful` | Opus 4.6 |
 
+### Planning (Optional)
+
+Create a `PLAN.md` at root to keep your development plans. This file is in `.gitignore` to prevent leaking sensitive info:
+
+```bash
+touch PLAN.md
+# Write your plans, notes, TODOs here
+```
+
+> **Note**: Do not commit `PLAN.md` as it may contain tokens, credentials, or private information.
+
 ### Run
 
 ```bash
