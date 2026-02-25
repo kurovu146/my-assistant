@@ -18,6 +18,8 @@ import { startWebMonitor, stopWebMonitor } from "./scheduler/web-monitor.ts";
 import { startMemoryConsolidation, stopMemoryConsolidation } from "./memory/consolidation.ts";
 import { startNewsDigest, stopNewsDigest } from "./scheduler/news-digest.ts";
 import { startSkillWatcher, stopSkillWatcher } from "./claude/skills.ts";
+import { startIpcPoller, stopIpcPoller } from "./ipc/poller.ts";
+import { closeIpcDb } from "./ipc/shared-db.ts";
 import type { Bot } from "grammy";
 import { logger } from "./logger.ts";
 
@@ -70,6 +72,7 @@ async function main() {
     { command: "monitor", description: "Theo dõi webpage thay đổi" },
     { command: "unmonitor", description: "Bỏ theo dõi webpage" },
     { command: "monitors", description: "Danh sách đang theo dõi" },
+    { command: "ipc", description: "Điều khiển inter-bot chat" },
   ]);
 
   // 6. Start cron services
@@ -91,6 +94,9 @@ async function main() {
 
     // News Digest — gửi tin tức mỗi sáng 8h VN
     startNewsDigest(sendTelegram);
+
+    // IPC — inter-bot communication polling
+    startIpcPoller(sendTelegram);
   }
 
   // 7. Start skill watcher — auto-reload khi files thay đổi
@@ -142,6 +148,8 @@ async function shutdown() {
   stopWebMonitor();
   stopMemoryConsolidation();
   stopNewsDigest();
+  stopIpcPoller();
+  closeIpcDb();
   stopSkillWatcher();
   if (bot) {
     await bot.stop();

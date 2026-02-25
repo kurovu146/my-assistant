@@ -40,4 +40,7 @@ export const config = {
 
   // Session
   sessionTimeoutHours: parseInt(process.env.SESSION_TIMEOUT_HOURS || "72"),
+
+  // IPC — inter-bot communication
+  botName: process.env.BOT_NAME || "kuro",
 };

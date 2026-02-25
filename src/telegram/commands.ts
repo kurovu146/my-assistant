@@ -12,6 +12,7 @@ import { timeAgo, TOOL_ICONS } from "./formatter.ts";
 import { config } from "../config.ts";
 import { getClaudeProvider } from "../claude/provider.ts";
 import { getSkillCount } from "../claude/skills.ts";
+import { pauseIpcPoller, resumeIpcPoller, isIpcPaused, isIpcRunning } from "../ipc/poller.ts";
 
 // Bot start time — để tính uptime
 const botStartTime = Date.now();
@@ -346,5 +347,35 @@ export async function handleStop(ctx: Context): Promise<void> {
     await ctx.reply("⏹ Đã dừng query.");
   } else {
     await ctx.reply("ℹ️ Không có query nào đang chạy.");
+  }
+}
+
+/**
+ * /ipc [stop|start|status] — Điều khiển IPC (inter-bot communication)
+ *
+ * /ipc stop   — Tạm dừng nhận tin từ bot khác
+ * /ipc start  — Bật lại nhận tin
+ * /ipc        — Xem trạng thái hiện tại
+ */
+export async function handleIpc(ctx: Context): Promise<void> {
+  const text = (ctx.message as any)?.text || "";
+  const arg = text.replace(/^\/ipc\s*/, "").trim().toLowerCase();
+
+  if (arg === "stop") {
+    pauseIpcPoller();
+    await ctx.reply("⏸ IPC đã tạm dừng. Bot sẽ không nhận tin từ bot khác.\n\nDùng /ipc start để bật lại.");
+  } else if (arg === "start") {
+    resumeIpcPoller();
+    await ctx.reply("▶️ IPC đã bật lại. Bot sẽ nhận và xử lý tin từ bot khác.");
+  } else {
+    const running = isIpcRunning();
+    const paused = isIpcPaused();
+    const status = !running ? "❌ Tắt" : paused ? "⏸ Tạm dừng" : "✅ Đang chạy";
+    await ctx.reply(
+      `📨 IPC Status: ${status}\n\n` +
+        `Lệnh:\n` +
+        `/ipc stop — Tạm dừng\n` +
+        `/ipc start — Bật lại`,
+    );
   }
 }

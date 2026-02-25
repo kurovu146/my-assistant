@@ -77,7 +77,7 @@ async function checkUrl(url: MonitoredUrl): Promise<void> {
             `🔗 ${url.url}\n` +
             `📝 ${url.label || "Không có label"}\n\n` +
             `Hash: ${shortHash(url.lastHash)} → ${shortHash(newHash)}\n` +
-            `⏰ ${new Date().toLocaleString("vi-VN")}`,
+            `⏰ ${new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })}`,
         );
       }
     }

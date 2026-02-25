@@ -11,6 +11,7 @@ import { createGmailMcpServer } from "../mcp/gmail.ts";
 import { logger } from "../logger.ts";
 import { createSheetsMcpServer } from "../mcp/sheets.ts";
 import { createMemoryMcpServer } from "../mcp/memory.ts";
+import { createIpcMcpServer } from "../mcp/ipc.ts";
 import { buildMemoryContext } from "../memory/extraction.ts";
 import type {
   AgentProvider,
@@ -59,6 +60,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
   private cachedSystemPrompt: string | null = null;
   private gmailMcp: ReturnType<typeof createGmailMcpServer>;
   private sheetsMcp: ReturnType<typeof createSheetsMcpServer>;
+  private ipcMcp: ReturnType<typeof createIpcMcpServer>;
   private cumulativeUsage: CumulativeUsage = {
     totalInputTokens: 0,
     totalOutputTokens: 0,
@@ -69,6 +71,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
   constructor() {
     this.gmailMcp = createGmailMcpServer();
     this.sheetsMcp = createSheetsMcpServer();
+    this.ipcMcp = createIpcMcpServer();
     setOnCacheClear(() => {
       this.cachedSystemPrompt = null;
     });
@@ -188,6 +191,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
               ...(this.gmailMcp ? { gmail: this.gmailMcp } : {}),
               ...(this.sheetsMcp ? { sheets: this.sheetsMcp } : {}),
               ...(memoryMcp ? { memory: memoryMcp } : {}),
+              ipc: this.ipcMcp,
             },
             allowedTools: [
               "Bash",
@@ -200,6 +204,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
               ...(this.gmailMcp ? ["mcp__gmail__*"] : []),
               ...(this.sheetsMcp ? ["mcp__sheets__*"] : []),
               ...(memoryMcp ? ["mcp__memory__*"] : []),
+              "mcp__ipc__*",
             ],
             permissionMode: "bypassPermissions",
             maxTurns: (activeModel || config.claudeModel).includes("haiku") ? 5 : config.maxTurns,

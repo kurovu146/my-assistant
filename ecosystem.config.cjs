@@ -16,6 +16,7 @@ module.exports = {
       max_restarts: 10,
       env: {
         NODE_ENV: "production",
+        TZ: "Asia/Ho_Chi_Minh",
         CLAUDECODE: "",
         CLAUDE_CODE_ENTRYPOINT: "",
         PATH: `${path.join(homeDir, ".bun", "bin")}:${process.env.PATH}`,

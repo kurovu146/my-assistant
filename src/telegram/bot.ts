@@ -26,6 +26,7 @@ import {
   handleUnmonitor,
   handleMonitors,
   handleMemory,
+  handleIpc,
   activeQueries,
 } from "./commands.ts";
 
@@ -100,6 +101,7 @@ export function createBot(): Bot {
   bot.command("unmonitor", handleUnmonitor);
   bot.command("monitors", handleMonitors);
   bot.command("memory", handleMemory);
+  bot.command("ipc", handleIpc);
 
   bot.callbackQuery(/^resume:/, handleResumeCallback);
 
