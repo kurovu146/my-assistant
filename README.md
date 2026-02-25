@@ -83,6 +83,17 @@ use powerful phân tích kiến trúc
 | `balanced` | Sonnet 4.6 |
 | `powerful` | Opus 4.6 |
 
+### Planning (Tùy chọn)
+
+Tạo `PLAN.md` ở root để ghi kế hoạch phát triển. File này nằm trong `.gitignore` để tránh leak thông tin nhạy cảm:
+
+```bash
+touch PLAN.md
+# Ghi kế hoạch, notes, TODO... vào đây
+```
+
+> **Lưu ý**: Không commit `PLAN.md` vì có thể chứa tokens, credentials, hoặc thông tin riêng tư.
+
 ### Chạy
 
 ```bash
