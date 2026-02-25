@@ -22,7 +22,7 @@ cp -r /home/kuro/dev/my-assistant /home/kuro/JudyDev
 ### 3. Customize cho Judy
 
 **a) `.env`** — đổi:
-- `TELEGRAM_BOT_TOKEN` → token Judy: `8398555157:AAHiqCU65jdyFvzKi5eS745SOl8kMm2N2TE`
+- `TELEGRAM_BOT_TOKEN` → token Judy (lấy từ .env của JudyDev)
 - `TELEGRAM_ALLOWED_USERS` → `1595473025` (anh Tuấn, tạm thời)
 - `CLAUDE_MODEL` → `claude-sonnet-4-6`
 - `CLAUDE_WORKING_DIR` → `/home/kuro/JudyDev`
