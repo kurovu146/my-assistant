@@ -20,7 +20,9 @@ import {
 } from "../src/memory/embedding.ts";
 import { searchFactsHybrid } from "../src/memory/semantic.ts";
 import { chunkText } from "../src/memory/knowledge.ts";
-import { buildExtractionPrompt } from "../src/memory/extraction.ts";
+import { buildExtractionPrompt, EXTRACT_PROMPT } from "../src/memory/extraction.ts";
+import { CONSOLIDATION_PROMPT } from "../src/memory/consolidation.ts";
+import { categoryGuide, MEMORY_CATEGORIES } from "../src/memory/categories.ts";
 import { buildContextSnippet, parseEntities } from "../src/memory/entities.ts";
 
 // --- FTS5: keyword thô từng làm memory_search ném lỗi cú pháp ---
@@ -331,6 +333,49 @@ test("filterSensitiveContent che token và giữ nguyên text thường", () => 
   expect(result.redactedCount).toBe(1);
 
   expect(filterSensitiveContent("chỉ là câu bình thường").redactedCount).toBe(0);
+});
+
+// --- Taxonomy category ---
+
+test("MEMORY_CATEGORIES tách personal thành các nhóm cụ thể", () => {
+  const names = Object.keys(MEMORY_CATEGORIES);
+
+  expect(names).toContain("hobby");
+  expect(names).toContain("health");
+  expect(names).toContain("relationship");
+  expect(names).toContain("identity");
+  // personal cũ bị thay hẳn, không để lẫn hai hệ nhãn
+  expect(names).not.toContain("personal");
+
+  // technical bị xẻ nhỏ vì từng phình lên 56% số fact
+  expect(names).toContain("stack");
+  expect(names).toContain("infra");
+  expect(names).not.toContain("technical");
+
+  expect(names).toHaveLength(13);
+});
+
+test("categoryGuide liệt kê đủ mọi category kèm mô tả", () => {
+  const guide = categoryGuide();
+
+  for (const [name, desc] of Object.entries(MEMORY_CATEGORIES)) {
+    expect(guide).toContain(name);
+    expect(guide).toContain(desc);
+  }
+});
+
+test("EXTRACT_PROMPT dựng từ categoryGuide, không hardcode danh sách riêng", () => {
+  // Hardcode ở nhiều chỗ thì sửa taxonomy sẽ bỏ sót một nơi
+  for (const name of Object.keys(MEMORY_CATEGORIES)) {
+    expect(EXTRACT_PROMPT).toContain(name);
+  }
+  expect(EXTRACT_PROMPT).not.toContain("personal,");
+});
+
+test("CONSOLIDATION_PROMPT cấm gộp fact khác category", () => {
+  // Nguyên nhân preference bị nuốt vào workflow: prompt chỉ nói "giữ category gốc",
+  // vô nghĩa khi các fact được gộp vốn khác nhãn nhau
+  expect(CONSOLIDATION_PROMPT).toMatch(/CÙNG category|cùng category/);
 });
 
 // --- Prompt extraction phải tách bạch dữ liệu và mệnh lệnh ---

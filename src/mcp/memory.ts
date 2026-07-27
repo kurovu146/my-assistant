@@ -26,6 +26,7 @@ import {
   countFacts,
 } from "../memory/repository.ts";
 import { embedAndLinkFact, searchFactsHybrid } from "../memory/semantic.ts";
+import { categoryGuide, CATEGORY_NAMES, FALLBACK_CATEGORY } from "../memory/categories.ts";
 
 /**
  * Tạo Memory MCP server cho 1 user cụ thể.
@@ -39,13 +40,13 @@ export function createMemoryMcpServer(userId: number) {
       // ---- memory_save ----
       tool(
         "memory_save",
-        "Lưu một thông tin quan trọng vào bộ nhớ dài hạn. Dùng khi user chia sẻ preferences, quyết định, thông tin cá nhân, hoặc bất cứ điều gì cần nhớ cho các cuộc hội thoại sau. Categories: preference, decision, personal, technical, project, workflow.",
+        `Lưu một thông tin quan trọng vào bộ nhớ dài hạn. Dùng khi user chia sẻ preferences, quyết định, thông tin cá nhân, hoặc bất cứ điều gì cần nhớ cho các cuộc hội thoại sau.\n\nCategories:\n${categoryGuide()}`,
         {
           fact: z.string().describe("Thông tin cần nhớ (ngắn gọn, cụ thể)"),
           category: z
-            .enum(["preference", "decision", "personal", "technical", "project", "workflow", "general"])
-            .default("general")
-            .describe("Phân loại thông tin"),
+            .enum([...CATEGORY_NAMES, FALLBACK_CATEGORY])
+            .default(FALLBACK_CATEGORY)
+            .describe("Phân loại thông tin — chọn nhãn sát nghĩa nhất"),
         },
         async (args) => {
           const saved = saveFact(userId, args.fact, args.category, "active");

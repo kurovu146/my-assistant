@@ -4,27 +4,31 @@
 // ============================================================
 
 import { getClaudeProvider } from "../claude/provider.ts";
+import { resolveModelTier } from "../claude/router.ts";
 import { getUserFacts, saveFact, type MemoryFact } from "./repository.ts";
+import { categoryGuide, FALLBACK_CATEGORY } from "./categories.ts";
 import { embedAndLinkFact } from "./semantic.ts";
 import { logger } from "../logger.ts";
 
 // --- Fact Extraction (Tier 1) ---
 
-const EXTRACT_PROMPT = `Bạn là bộ trích xuất thông tin. Phân tích cuộc hội thoại và trích xuất các facts quan trọng cần nhớ.
+export const EXTRACT_PROMPT = `Bạn là bộ trích xuất thông tin. Phân tích cuộc hội thoại và trích xuất các facts quan trọng cần nhớ.
 
 Quy tắc:
 - Chỉ trích xuất thông tin CỤ THỂ, hữu ích cho các cuộc hội thoại sau
 - Bỏ qua thông tin tạm thời (trạng thái hiện tại, lỗi đang fix...)
-- Ưu tiên: sở thích, quyết định, kiến trúc, conventions, tên/thông tin cá nhân
-- Categories: preference, decision, personal, technical, project, workflow
+- Chọn category SÁT nghĩa nhất, không dồn hết vào một nhóm
 - Trả về JSON array, mỗi item: {"fact": "...", "category": "..."}
 - Nếu KHÔNG có gì đáng nhớ, trả về []
 - Tối đa 5 facts mỗi lần
 
+Categories:
+${categoryGuide()}
+
 Ví dụ output:
 [
   {"fact": "Anh thích dùng Bun thay vì Node.js", "category": "preference"},
-  {"fact": "Project BasoTien dùng Go + Godot Engine", "category": "project"}
+  {"fact": "my-assistant chạy trên VPS, quản lý process bằng PM2", "category": "infra"}
 ]`;
 
 /**
@@ -60,6 +64,9 @@ export async function extractFacts(
     const resultText = await getClaudeProvider().complete({
       prompt: buildExtractionPrompt(userMessage, assistantResponse),
       systemPrompt: EXTRACT_PROMPT,
+      // Sonnet thay Haiku: 13 category đòi phân loại tinh hơn, và đây là chỗ gán
+      // nhãn đầu tiên — sai ở đây thì consolidation cũng thừa hưởng cái sai
+      model: resolveModelTier("balanced"),
     });
 
     if (!resultText) return;
@@ -81,7 +88,7 @@ export async function extractFacts(
     const source = userMessage.slice(0, 50);
     for (const f of facts.slice(0, 5)) {
       if (f.fact && f.fact.length > 5) {
-        const saved = saveFact(userId, f.fact, f.category || "general", source);
+        const saved = saveFact(userId, f.fact, f.category || FALLBACK_CATEGORY, source);
         await embedAndLinkFact(userId, saved.id, f.fact);
       }
     }

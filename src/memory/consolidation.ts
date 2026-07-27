@@ -4,18 +4,22 @@
 // ============================================================
 
 import { getClaudeProvider } from "../claude/provider.ts";
+import { resolveModelTier } from "../claude/router.ts";
+import { FALLBACK_CATEGORY } from "./categories.ts";
 import { getUserFacts, saveFact, deleteFact, countFacts, cleanupOldData } from "./repository.ts";
 import { embedAndLinkFact } from "./semantic.ts";
 import { logger } from "../logger.ts";
 
-const CONSOLIDATION_PROMPT = `Bạn là bộ tối ưu hóa bộ nhớ. Nhiệm vụ: gộp các facts trùng lặp hoặc tương tự thành facts ngắn gọn hơn.
+export const CONSOLIDATION_PROMPT = `Bạn là bộ tối ưu hóa bộ nhớ. Nhiệm vụ: gộp các facts trùng lặp hoặc tương tự thành facts ngắn gọn hơn.
 
 Quy tắc:
+- CHỈ gộp các facts CÙNG category với nhau. Hai facts khác category thì để riêng,
+  dù nội dung có vẻ liên quan
+- Category của fact gộp = category chung của nhóm đó
 - Gộp facts có nội dung tương tự/trùng lặp thành 1 fact duy nhất
 - Giữ nguyên facts unique, không thay đổi
 - Bảo toàn thông tin quan trọng: tên, ngày, quyết định, sở thích
 - Không bịa thêm thông tin
-- Giữ nguyên category gốc
 - Nếu 2 facts mâu thuẫn, giữ fact MỚI HƠN
 
 Input: JSON array of facts (mỗi fact có id, fact, category)
@@ -65,6 +69,8 @@ export async function consolidateUserFacts(userId: number): Promise<Consolidatio
     const resultText = await getClaudeProvider().complete({
       prompt: JSON.stringify(input),
       systemPrompt: CONSOLIDATION_PROMPT,
+      // Haiku từng gộp chéo category (preference "dùng Bun" bị nuốt vào workflow)
+      model: resolveModelTier("balanced"),
     });
 
     if (!resultText) {
@@ -93,7 +99,7 @@ export async function consolidateUserFacts(userId: number): Promise<Consolidatio
 
       // Save merged fact — embed luôn, nếu không fact gộp (thường là fact quan trọng
       // nhất) sẽ không có vector và rơi khỏi semantic search cho tới lần backfill sau.
-      const merged = saveFact(userId, group.new_fact, group.category || "general", "consolidation");
+      const merged = saveFact(userId, group.new_fact, group.category || FALLBACK_CATEGORY, "consolidation");
       await embedAndLinkFact(userId, merged.id, group.new_fact);
 
       // Delete old facts
