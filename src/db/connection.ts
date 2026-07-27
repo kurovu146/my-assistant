@@ -6,8 +6,13 @@
 import { Database } from "bun:sqlite";
 import { resolve } from "path";
 
-const DB_PATH = resolve(import.meta.dir, "../../sessions.db");
+// SESSIONS_DB_PATH cho phép test chạy trên DB riêng (":memory:")
+const DB_PATH = process.env.SESSIONS_DB_PATH || resolve(import.meta.dir, "../../sessions.db");
 export const db = new Database(DB_PATH);
+
+// Bot handler và scheduler cùng ghi → WAL + chờ khi bị khóa
+db.run("PRAGMA journal_mode = WAL");
+db.run("PRAGMA busy_timeout = 5000");
 
 // --- Schema ---
 
@@ -76,16 +81,17 @@ db.run(`
 db.run(`CREATE INDEX IF NOT EXISTS idx_memory_facts_user ON memory_facts (user_id, category)`);
 
 // --- Migrations ---
+// Chỉ thêm cột khi thiếu — không nuốt lỗi thật (disk full, DB hỏng...)
 
-try {
-  db.run(`ALTER TABLE memory_facts ADD COLUMN last_accessed_at INTEGER NOT NULL DEFAULT 0`);
-} catch (_) { /* column already exists */ }
-try {
-  db.run(`ALTER TABLE memory_facts ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0`);
-} catch (_) { /* column already exists */ }
-try {
-  db.run(`ALTER TABLE query_logs ADD COLUMN model TEXT NOT NULL DEFAULT ''`);
-} catch (_) { /* column already exists */ }
+function addColumnIfMissing(table: string, column: string, definition: string): void {
+  const columns = db.query(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (columns.some((c) => c.name === column)) return;
+  db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
+addColumnIfMissing("memory_facts", "last_accessed_at", "INTEGER NOT NULL DEFAULT 0");
+addColumnIfMissing("memory_facts", "access_count", "INTEGER NOT NULL DEFAULT 0");
+addColumnIfMissing("query_logs", "model", "TEXT NOT NULL DEFAULT ''");
 
 // --- FTS5 ---
 
@@ -118,4 +124,11 @@ db.run(`
   END
 `);
 
-db.run(`INSERT OR IGNORE INTO memory_facts_fts(memory_facts_fts) VALUES('rebuild')`);
+// Rebuild index 1 lần duy nhất (mỗi restart rebuild lại là phí)
+db.run(`CREATE TABLE IF NOT EXISTS db_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+
+const ftsReady = db.query(`SELECT value FROM db_meta WHERE key = 'fts_rebuilt_at'`).get();
+if (!ftsReady) {
+  db.run(`INSERT INTO memory_facts_fts(memory_facts_fts) VALUES('rebuild')`);
+  db.run(`INSERT INTO db_meta (key, value) VALUES ('fts_rebuilt_at', ?)`, [String(Date.now())]);
+}

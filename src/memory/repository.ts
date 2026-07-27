@@ -43,18 +43,34 @@ export function saveFact(userId: number, fact: string, category: string = "gener
   };
 }
 
+/**
+ * Bọc keyword thành phrase query của FTS5.
+ * Keyword thô ("email: abc", "a-b", "AND") là cú pháp FTS hợp lệ → query ném lỗi;
+ * phrase query coi tất cả là text cần tìm.
+ */
+export function toFtsPhrase(keyword: string): string {
+  return `"${keyword.replace(/"/g, '""')}"`;
+}
+
 export function searchFacts(userId: number, keyword: string, limit: number = 20): MemoryFact[] {
-  // FTS5 search
-  const ftsRows = db
-    .query(
-      `SELECT m.*, bm25(memory_facts_fts) as rank
-       FROM memory_facts_fts fts
-       JOIN memory_facts m ON m.id = fts.rowid
-       WHERE memory_facts_fts MATCH ? AND m.user_id = ?
-       ORDER BY rank
-       LIMIT ?`,
-    )
-    .all(keyword, userId, limit) as any[];
+  // FTS5 search — lỗi cú pháp bất ngờ vẫn rơi về LIKE bên dưới
+  let ftsRows: any[] = [];
+  if (keyword.trim()) {
+    try {
+      ftsRows = db
+        .query(
+          `SELECT m.*, bm25(memory_facts_fts) as rank
+           FROM memory_facts_fts fts
+           JOIN memory_facts m ON m.id = fts.rowid
+           WHERE memory_facts_fts MATCH ? AND m.user_id = ?
+           ORDER BY rank
+           LIMIT ?`,
+        )
+        .all(toFtsPhrase(keyword), userId, limit) as any[];
+    } catch {
+      ftsRows = [];
+    }
+  }
 
   if (ftsRows.length > 0) {
     const matchedFacts = ftsRows.map(mapFact);
@@ -81,16 +97,21 @@ function enrichWithContext(userId: number, matchedFacts: MemoryFact[], limit: nu
   const enriched: MemoryFact[] = [...matchedFacts];
 
   const ONE_HOUR = 60 * 60 * 1000;
+  // kt: 1 query/seed (bun:sqlite cache prepared statement, DB local nên rẻ)
+  //     — gộp bằng window function khi số seed vượt vài chục
+  const neighborStmt = db.query(
+    `SELECT * FROM memory_facts
+     WHERE user_id = ? AND category = ? AND id != ?
+       AND created_at BETWEEN ? AND ?
+     ORDER BY ABS(created_at - ?) ASC
+     LIMIT 2`,
+  );
+
   for (const fact of matchedFacts) {
-    const neighbors = db
-      .query(
-        `SELECT * FROM memory_facts
-         WHERE user_id = ? AND category = ? AND id != ?
-           AND created_at BETWEEN ? AND ?
-         ORDER BY ABS(created_at - ?) ASC
-         LIMIT 2`,
-      )
-      .all(userId, fact.category, fact.id, fact.createdAt - ONE_HOUR, fact.createdAt + ONE_HOUR, fact.createdAt) as any[];
+    const neighbors = neighborStmt.all(
+      userId, fact.category, fact.id,
+      fact.createdAt - ONE_HOUR, fact.createdAt + ONE_HOUR, fact.createdAt,
+    ) as any[];
 
     for (const n of neighbors) {
       if (!matchedIds.has(n.id)) {

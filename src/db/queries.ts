@@ -60,9 +60,16 @@ export function getQueryStats(userId: number): QueryStats {
     )
     .get(userId, todayStart.getTime()) as any;
 
+  // Tools lưu dạng CSV nên phải đếm ở JS → chỉ quét cửa sổ 30 ngày gần nhất
+  // thay vì toàn bộ lịch sử (retention 90 ngày).
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
   const allTools = db
-    .query(`SELECT tools_used FROM query_logs WHERE user_id = ? AND tools_used != ''`)
-    .all(userId) as any[];
+    .query(
+      `SELECT tools_used FROM query_logs
+       WHERE user_id = ? AND tools_used != '' AND created_at >= ?
+       ORDER BY created_at DESC LIMIT 2000`,
+    )
+    .all(userId, thirtyDaysAgo) as any[];
 
   const toolCounts = new Map<string, number>();
   for (const row of allTools) {
