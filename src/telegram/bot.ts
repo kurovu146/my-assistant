@@ -3,7 +3,7 @@
 // Telegram Bot — Xử lý tin nhắn và kết nối với Claude
 // ============================================================
 
-import { Bot } from "grammy";
+import { Bot, type Api, type Context, type Filter } from "grammy";
 import { config } from "../config.ts";
 import { getClaudeProvider } from "../claude/provider.ts";
 import { parseModelOverride, resolveModelTier } from "../claude/router.ts";
@@ -26,7 +26,6 @@ import {
   handleUnmonitor,
   handleMonitors,
   handleMemory,
-  handleIpc,
   activeQueries,
 } from "./commands.ts";
 
@@ -58,14 +57,18 @@ function withUserLock(userId: number, fn: () => Promise<void>, onOverflow?: () =
 
   // Queue overflow — quá 3 tin đang chờ
   if (depth >= MAX_QUEUE_DEPTH) {
-    onOverflow?.();
+    onOverflow?.().catch((err) => logger.error("❌ Overflow notify error:", err));
     return Promise.resolve();
   }
 
   userQueueDepth.set(userId, depth + 1);
 
   const prev = userLocks.get(userId) || Promise.resolve();
-  const current = prev.then(fn, fn);
+  // Handler không await promise này → phải tự catch, nếu không Bun kill process
+  // vì unhandled rejection (ctx.reply lỗi 429/network là đủ).
+  const current = prev.then(fn, fn).catch((err) => {
+    logger.error("❌ Lane queue error:", err instanceof Error ? err.message : err);
+  });
   userLocks.set(userId, current);
 
   current.finally(() => {
@@ -101,7 +104,6 @@ export function createBot(): Bot {
   bot.command("unmonitor", handleUnmonitor);
   bot.command("monitors", handleMonitors);
   bot.command("memory", handleMemory);
-  bot.command("ipc", handleIpc);
 
   bot.callbackQuery(/^resume:/, handleResumeCallback);
 
@@ -127,11 +129,11 @@ export function createBot(): Bot {
 // ============================================================
 
 async function safeEditText(
-  api: any,
+  api: Api,
   chatId: number,
   messageId: number,
   text: string,
-  parseMode?: string,
+  parseMode?: "Markdown",
 ): Promise<boolean> {
   try {
     await api.editMessageText(chatId, messageId, text, parseMode ? { parse_mode: parseMode } : undefined);
@@ -150,7 +152,7 @@ async function safeEditText(
   }
 }
 
-async function safeSendMessage(ctx: any, text: string): Promise<void> {
+async function safeSendMessage(ctx: Context, text: string): Promise<void> {
   try {
     await ctx.reply(text, { parse_mode: "Markdown" });
   } catch {
@@ -182,7 +184,7 @@ interface StreamingOptions {
   /** User ID (Telegram) */
   userId: number;
   /** Context object (grammy) */
-  ctx: any;
+  ctx: Context;
   /** Chat ID */
   chatId: number;
   /** Message ID của progress message (sẽ được edit liên tục) */
@@ -202,6 +204,18 @@ interface StreamingOptions {
 async function handleQueryWithStreaming(options: StreamingOptions): Promise<void> {
   const { prompt, userId, ctx, chatId, messageId, sessionTitle, errorLabel, onComplete, modelOverride } = options;
   const startTime = Date.now();
+
+  // finally luôn chạy kể cả khi return sớm → chỉ cho cleanup chạy đúng 1 lần
+  let cleanupDone = false;
+  const runCleanup = async () => {
+    if (cleanupDone || !onComplete) return;
+    cleanupDone = true;
+    try {
+      await onComplete();
+    } catch (err) {
+      logger.error("⚠️ Cleanup error:", err instanceof Error ? err.message : err);
+    }
+  };
 
   // AbortController — /stop sẽ abort signal này
   const controller = new AbortController();
@@ -290,7 +304,7 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
       }
       // Cleanup trước khi return sớm — tránh AbortController bị orphan
       activeQueries.delete(userId);
-      if (onComplete) { try { await onComplete(); } catch {} }
+      await runCleanup();
       return;
     }
 
@@ -359,7 +373,9 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
         createSession(userId, response.sessionId, sessionTitle, response.model || selectedModel);
       }
 
-      // Gọi tiếp với session hiện tại
+      // Gọi tiếp với session hiện tại.
+      // KHÔNG truyền onComplete: file tạm phải sống hết chuỗi continue,
+      // finally của lượt này sẽ dọn sau khi recursion kết thúc.
       await handleQueryWithStreaming({
         prompt: "Tiếp tục task đang dở. Xem lại todo list và hoàn thành các phần còn lại.",
         userId,
@@ -368,11 +384,10 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
         messageId: continueMsg.message_id,
         sessionTitle,
         errorLabel,
-        onComplete,
         modelOverride,
         _continueCount: continueCount + 1,
       });
-      return; // Skip extractFacts + cleanup ở finally (đã delegate cho recursive call)
+      return; // Skip extractFacts — lượt cuối của chuỗi continue đã làm
     }
 
     // Tier 1: Extract facts từ conversation (async, không block UX)
@@ -388,10 +403,8 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
   } finally {
     clearInterval(typingInterval);
     activeQueries.delete(userId);
-    // Cleanup callback (file deletion, etc.)
-    if (onComplete) {
-      try { await onComplete(); } catch {}
-    }
+    // Cleanup callback (file deletion, etc.) — idempotent
+    await runCleanup();
   }
 }
 
@@ -399,9 +412,9 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
 // Handler: Text message — với streaming + queue + abort
 // ============================================================
 
-async function handleTextMessage(ctx: any): Promise<void> {
+async function handleTextMessage(ctx: Filter<Context, "message:text">): Promise<void> {
   const userId = ctx.from?.id;
-  let text = ctx.message?.text;
+  let text = ctx.message.text;
   if (userId === undefined || !text) return;
 
   // Detect inline model override: "dùng opus ...", "use fast ..."
@@ -438,15 +451,16 @@ async function handleTextMessage(ctx: any): Promise<void> {
 // Handler: File — với session + progress
 // ============================================================
 
-async function handleDocument(ctx: any): Promise<void> {
+async function handleDocument(ctx: Filter<Context, "message:document">): Promise<void> {
   const userId = ctx.from?.id;
-  const doc = ctx.message?.document;
-  const caption = ctx.message?.caption || "Phân tích file này";
+  const doc = ctx.message.document;
+  const caption = ctx.message.caption || "Phân tích file này";
   if (userId === undefined || !doc) return;
 
   withUserLock(userId, async () => {
     await ctx.replyWithChatAction("typing");
-    const safeName = sanitizeFilename(doc.file_name);
+    // file_name là optional trong Bot API — thiếu tên vẫn phải xử lý được
+    const safeName = sanitizeFilename(doc.file_name || `file_${Date.now()}`);
     const processingMsg = await ctx.reply(`📄 Đang tải file ${safeName}...`);
     const chatId = ctx.chat.id;
     const msgId = processingMsg.message_id;
@@ -456,6 +470,9 @@ async function handleDocument(ctx: any): Promise<void> {
       const file = await ctx.api.getFile(doc.file_id);
       const fileUrl = `https://api.telegram.org/file/bot${config.telegramToken}/${file.file_path}`;
       const fileResponse = await fetch(fileUrl);
+      if (!fileResponse.ok) {
+        throw new Error(`Tải file thất bại (HTTP ${fileResponse.status})`);
+      }
       const fileBuffer = await fileResponse.arrayBuffer();
 
       const tempDir = `${config.claudeWorkingDir}/.telegram-uploads`;
@@ -491,10 +508,10 @@ async function handleDocument(ctx: any): Promise<void> {
 // Handler: Photo — với session + progress
 // ============================================================
 
-async function handlePhoto(ctx: any): Promise<void> {
+async function handlePhoto(ctx: Filter<Context, "message:photo">): Promise<void> {
   const userId = ctx.from?.id;
-  const photos = ctx.message?.photo;
-  const caption = ctx.message?.caption || "Phân tích ảnh này";
+  const photos = ctx.message.photo;
+  const caption = ctx.message.caption || "Phân tích ảnh này";
   if (userId === undefined || !photos || photos.length === 0) return;
 
   withUserLock(userId, async () => {
@@ -504,10 +521,13 @@ async function handlePhoto(ctx: any): Promise<void> {
     const msgId = processingMsg.message_id;
 
     try {
-      const photo = photos[photos.length - 1];
+      const photo = photos[photos.length - 1]!;
       const file = await ctx.api.getFile(photo.file_id);
       const fileUrl = `https://api.telegram.org/file/bot${config.telegramToken}/${file.file_path}`;
       const imgResponse = await fetch(fileUrl);
+      if (!imgResponse.ok) {
+        throw new Error(`Tải ảnh thất bại (HTTP ${imgResponse.status})`);
+      }
       const imgBuffer = await imgResponse.arrayBuffer();
       const fileName = `photo_${Date.now()}.jpg`;
       const tempDir = `${config.claudeWorkingDir}/.telegram-uploads`;
