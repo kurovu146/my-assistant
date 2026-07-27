@@ -13,6 +13,7 @@ import { logger } from "../logger.ts";
 const CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30 phút
 
 let intervalId: ReturnType<typeof setInterval> | null = null;
+let firstRunTimer: ReturnType<typeof setTimeout> | null = null;
 let notifyFn: ((message: string) => Promise<void>) | null = null;
 
 /**
@@ -113,7 +114,10 @@ export function startWebMonitor(
   notifyFn = notify;
 
   // Check ngay lần đầu (sau 10s để bot khởi động xong)
-  setTimeout(() => checkAll(), 10_000);
+  firstRunTimer = setTimeout(() => {
+    firstRunTimer = null;
+    checkAll();
+  }, 10_000);
 
   // Cron mỗi 30 phút
   intervalId = setInterval(() => checkAll(), CHECK_INTERVAL_MS);
@@ -124,9 +128,13 @@ export function startWebMonitor(
  * Stop web monitor cron.
  */
 export function stopWebMonitor(): void {
+  if (firstRunTimer) {
+    clearTimeout(firstRunTimer);
+    firstRunTimer = null;
+  }
   if (intervalId) {
     clearInterval(intervalId);
     intervalId = null;
-    logger.log("📡 Web Monitor stopped");
   }
+  logger.log("📡 Web Monitor stopped");
 }

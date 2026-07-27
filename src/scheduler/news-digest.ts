@@ -84,7 +84,9 @@ async function fetchHackerNews(): Promise<NewsItem[]> {
  */
 async function fetchGitHubTrending(): Promise<NewsItem[]> {
   try {
-    const resp = await fetch("https://api.github.com/search/repositories?q=stars:>100+pushed:>2026-02-01&sort=stars&order=desc&per_page=15", {
+    // Cửa sổ 7 ngày gần nhất — ngày cứng sẽ hết ý nghĩa sau vài tháng
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const resp = await fetch(`https://api.github.com/search/repositories?q=stars:>100+pushed:>${since}&sort=stars&order=desc&per_page=15`, {
       headers: {
         "Accept": "application/vnd.github.v3+json",
         "User-Agent": "KuroBot/1.0",
@@ -126,7 +128,6 @@ async function fetchGitHubTrendingFallback(): Promise<NewsItem[]> {
 
     // Parse repo names từ trending page
     const items: NewsItem[] = [];
-    const repoRegex = /href="\/([^"]+\/[^"]+)"[^>]*class="[^"]*Link[^"]*"/g;
     const matches = [...html.matchAll(/class="Box-row"[\s\S]*?<h2[\s\S]*?<a href="\/([\w.-]+\/[\w.-]+)"/g)];
 
     for (const match of matches.slice(0, 10)) {
@@ -199,6 +200,7 @@ export async function createNewsDigest(): Promise<string> {
 // --- Cron ---
 
 let intervalId: ReturnType<typeof setInterval> | null = null;
+let firstRunTimer: ReturnType<typeof setTimeout> | null = null;
 let notifyFn: ((message: string) => Promise<void>) | null = null;
 
 /**
@@ -216,11 +218,15 @@ export function startNewsDigest(
 }
 
 export function stopNewsDigest(): void {
+  if (firstRunTimer) {
+    clearTimeout(firstRunTimer);
+    firstRunTimer = null;
+  }
   if (intervalId) {
     clearInterval(intervalId);
     intervalId = null;
-    logger.log("📰 News Digest stopped");
   }
+  logger.log("📰 News Digest stopped");
 }
 
 async function sendDigest(): Promise<void> {
@@ -249,7 +255,8 @@ function scheduleDaily(hourUTC: number, minuteUTC: number, fn: () => void): void
   const msUntilFirst = target.getTime() - now.getTime();
   logger.log(`📰 Next digest in ${Math.round(msUntilFirst / 60000)} minutes`);
 
-  setTimeout(() => {
+  firstRunTimer = setTimeout(() => {
+    firstRunTimer = null;
     fn();
     // Sau lần đầu, lặp mỗi 24h
     intervalId = setInterval(fn, 24 * 60 * 60 * 1000);
