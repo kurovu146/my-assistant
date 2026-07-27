@@ -6,7 +6,7 @@
 import { expect, mock, test } from "bun:test";
 import { resolve } from "path";
 import { tmpdir } from "os";
-import { splitMessage } from "../src/telegram/formatter.ts";
+import { formatTokenCount, formatUsageTotal, splitMessage } from "../src/telegram/formatter.ts";
 import { parseModelOverride, resolveModelTier } from "../src/claude/router.ts";
 import { filterSensitiveContent } from "../src/telegram/content-filter.ts";
 import { saveFact, searchFacts, toFtsQuery } from "../src/memory/repository.ts";
@@ -256,6 +256,42 @@ test("getUsageByPeriod trả về số 0 khi user chưa có query nào", () => {
   expect(report.month.costUsd).toBe(0);
   expect(report.month.cacheRead).toBe(0);
   expect(report.byModel).toEqual([]);
+});
+
+// --- Footer: token thay cho danh sách tool ---
+
+test("formatUsageTotal cộng cả cache vào tổng token", () => {
+  expect(
+    formatUsageTotal({
+      inputTokens: 12_400,
+      outputTokens: 8_200,
+      cacheReadTokens: 220_000,
+      cacheCreationTokens: 8_000,
+      costUSD: 1.2,
+    }),
+  ).toBe("📊 248.6k tokens");
+});
+
+test("formatUsageTotal im lặng khi không có số liệu", () => {
+  // query bị abort/lỗi → không có usage, footer chỉ còn thời gian
+  expect(formatUsageTotal(undefined)).toBe("");
+
+  // usage tồn tại nhưng rỗng → "0 tokens" vô nghĩa, cũng bỏ luôn
+  expect(
+    formatUsageTotal({
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      costUSD: 0,
+    }),
+  ).toBe("");
+});
+
+test("formatTokenCount rút gọn theo bậc nghìn/triệu", () => {
+  expect(formatTokenCount(999)).toBe("999");
+  expect(formatTokenCount(1_500)).toBe("1.5k");
+  expect(formatTokenCount(2_500_000)).toBe("2.50M");
 });
 
 // --- Telegram 4096 char limit ---

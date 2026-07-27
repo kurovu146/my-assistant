@@ -10,7 +10,7 @@ import { addMonitoredUrl, removeMonitoredUrl, getUserMonitoredUrls } from "../db
 import { getUserFacts, countFacts } from "../memory/repository.ts";
 import { countDocuments } from "../memory/knowledge.ts";
 import { countEntities } from "../memory/entities.ts";
-import { timeAgo, TOOL_ICONS } from "./formatter.ts";
+import { formatTokenCount, timeAgo, TOOL_ICONS } from "./formatter.ts";
 import { config } from "../config.ts";
 import { getClaudeProvider } from "../claude/provider.ts";
 import { getSkillCount } from "../claude/skills.ts";
@@ -220,11 +220,6 @@ function formatPeriod(p: PeriodUsage): string {
   );
 }
 
-function formatTokenCount(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(2)}M`;
-  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k`;
-  return `${tokens}`;
-}
 
 /**
  * /reload — Reload skills mà không cần restart bot

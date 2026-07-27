@@ -9,7 +9,7 @@ import { getClaudeProvider } from "../claude/provider.ts";
 import { parseModelOverride, resolveModelTier } from "../claude/router.ts";
 import { getActiveSession, createSession, touchSession } from "../db/sessions.ts";
 import { logQuery } from "../db/queries.ts";
-import { splitMessage, formatToolsUsed, TOOL_ICONS } from "./formatter.ts";
+import { splitMessage, formatUsageTotal, TOOL_ICONS } from "./formatter.ts";
 import { sanitizeResponse } from "./content-filter.ts";
 import { extractFacts } from "../memory/extraction.ts";
 import { authMiddleware } from "./middleware.ts";
@@ -335,12 +335,13 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
     // Content filter — redact secrets trước khi gửi
     const safeText = sanitizeResponse(response.text);
 
-    // Build final response with footer (tools + model tier + time)
+    // Build final response with footer (token + time)
     const elapsed = (responseTimeMs / 1000).toFixed(1);
     let fullResponse = safeText;
     const footerParts: string[] = [];
-    if (response.toolsUsed.length > 0) {
-      footerParts.push(formatToolsUsed(response.toolsUsed));
+    const usageTotal = formatUsageTotal(response.usage);
+    if (usageTotal) {
+      footerParts.push(usageTotal);
     }
     footerParts.push(`⏱ ${elapsed}s`);
     fullResponse += `\n\n---\n${footerParts.join("  |  ")}`;

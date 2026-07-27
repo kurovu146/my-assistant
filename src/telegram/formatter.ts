@@ -11,6 +11,8 @@
 //    → Cần convert sang format Telegram hiểu được
 // ============================================================
 
+import type { UsageStats } from "../claude/types.ts";
+
 const MAX_MESSAGE_LENGTH = 4000; // Để dư margin cho an toàn
 
 /**
@@ -114,22 +116,32 @@ export function splitMessage(text: string): string[] {
 }
 
 /**
- * Format danh sách tools Claude đã dùng.
- * Hiển thị ở cuối tin nhắn để user biết Claude đã làm gì.
+ * Rút gọn số token cho dễ đọc trên mobile.
  *
  * @example
- * formatToolsUsed(["Read", "Bash"]) → "\n\n---\n🛠 Tools: 📖 Read  ⚡ Bash"
+ * formatTokenCount(1500) → "1.5k"
  */
-export function formatToolsUsed(tools: string[]): string {
-  if (tools.length === 0) return "";
+export function formatTokenCount(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(2)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k`;
+  return `${tokens}`;
+}
 
-  const toolEmojis = TOOL_ICONS;
+/**
+ * Tổng token của một query cho footer — gồm cả cache, vì với agent nhiều turn
+ * cache read mới là phần lớn khối lượng thực sự xử lý.
+ *
+ * Trả chuỗi rỗng khi không có số liệu (query bị abort/lỗi) để footer chỉ còn thời gian.
+ *
+ * @example
+ * formatUsageTotal({ inputTokens: 12400, outputTokens: 8200, ... }) → "📊 248.6k tokens"
+ */
+export function formatUsageTotal(usage?: UsageStats): string {
+  if (!usage) return "";
 
-  const formatted = tools
-    .map((t) => `${toolEmojis[t] || "🔧"} ${t}`)
-    .join("  ");
-
-  return `Tools: ${formatted}`;
+  const total =
+    usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheCreationTokens;
+  return total > 0 ? `📊 ${formatTokenCount(total)} tokens` : "";
 }
 
 /**
