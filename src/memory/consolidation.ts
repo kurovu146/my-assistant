@@ -5,6 +5,7 @@
 
 import { getClaudeProvider } from "../claude/provider.ts";
 import { getUserFacts, saveFact, deleteFact, countFacts, cleanupOldData } from "./repository.ts";
+import { embedAndLinkFact } from "./semantic.ts";
 import { logger } from "../logger.ts";
 
 const CONSOLIDATION_PROMPT = `Bạn là bộ tối ưu hóa bộ nhớ. Nhiệm vụ: gộp các facts trùng lặp hoặc tương tự thành facts ngắn gọn hơn.
@@ -90,8 +91,10 @@ export async function consolidateUserFacts(userId: number): Promise<Consolidatio
     for (const group of result.merge) {
       if (!group.new_fact || !group.delete_ids || group.delete_ids.length === 0) continue;
 
-      // Save merged fact
-      saveFact(userId, group.new_fact, group.category || "general", "consolidation");
+      // Save merged fact — embed luôn, nếu không fact gộp (thường là fact quan trọng
+      // nhất) sẽ không có vector và rơi khỏi semantic search cho tới lần backfill sau.
+      const merged = saveFact(userId, group.new_fact, group.category || "general", "consolidation");
+      await embedAndLinkFact(userId, merged.id, group.new_fact);
 
       // Delete old facts
       for (const id of group.delete_ids) {

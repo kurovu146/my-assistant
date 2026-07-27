@@ -3,7 +3,7 @@
 // Cô lập môi trường (DB :memory:, tắt Voyage) nằm ở tests/setup.ts — preload qua
 // bunfig.toml. Đặt ở đây không có tác dụng vì `import` được hoist lên trước.
 
-import { expect, test } from "bun:test";
+import { expect, mock, test } from "bun:test";
 import { resolve } from "path";
 import { tmpdir } from "os";
 import { splitMessage } from "../src/telegram/formatter.ts";
@@ -203,4 +203,46 @@ test("filterSensitiveContent che token và giữ nguyên text thường", () => 
   expect(result.redactedCount).toBe(1);
 
   expect(filterSensitiveContent("chỉ là câu bình thường").redactedCount).toBe(0);
+});
+
+// --- Consolidation phải embed fact vừa gộp ---
+// Đặt cuối file: mock.module thay module toàn cục nên không được ảnh hưởng test trên.
+
+test("consolidation embed và liên kết fact vừa gộp", async () => {
+  const userId = 4;
+  const ids = Array.from({ length: 12 }, (_, i) =>
+    saveFact(userId, `Fact số ${i} về project BasoTien`, "project").id,
+  );
+  const deleteIds = ids.slice(0, 3);
+
+  const embedCalls: { factId: number; text: string }[] = [];
+  const realSemantic = await import("../src/memory/semantic.ts");
+  mock.module("../src/memory/semantic.ts", () => ({
+    ...realSemantic,
+    embedAndLinkFact: async (_userId: number, factId: number, text: string) => {
+      embedCalls.push({ factId, text });
+      return [];
+    },
+  }));
+  mock.module("../src/claude/provider.ts", () => ({
+    getClaudeProvider: () => ({
+      complete: async () =>
+        JSON.stringify({
+          keep: ids.slice(3),
+          merge: [{ delete_ids: deleteIds, new_fact: "BasoTien dùng Go và Godot", category: "project" }],
+        }),
+    }),
+  }));
+
+  const { consolidateUserFacts } = await import("../src/memory/consolidation.ts");
+  const result = await consolidateUserFacts(userId);
+
+  expect(result.merged).toBe(1);
+  expect(result.deleted).toBe(3);
+
+  // Fact gộp là fact quan trọng nhất — không có vector thì nó rơi khỏi semantic search
+  expect(embedCalls.length).toBe(1);
+  expect(embedCalls[0]!.text).toBe("BasoTien dùng Go và Godot");
+  // Phải embed đúng fact MỚI, không phải fact vừa bị xóa
+  expect(deleteIds).not.toContain(embedCalls[0]!.factId);
 });
