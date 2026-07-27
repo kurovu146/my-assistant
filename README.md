@@ -55,7 +55,7 @@ CLAUDE_MODEL=claude-sonnet-4-6
 ```env
 # Telegram
 TELEGRAM_BOT_TOKEN=xxx
-TELEGRAM_ALLOWED_USERS=123456789    # user ID cách nhau bởi dấu phẩy
+TELEGRAM_ALLOWED_USERS=123456789    # BẮT BUỘC — user ID cách nhau bởi dấu phẩy
 
 # Thư mục làm việc
 CLAUDE_WORKING_DIR=~/dev
@@ -65,7 +65,14 @@ SESSION_TIMEOUT_HOURS=72
 
 # Số vòng lặp tối đa của agent
 CLAUDE_MAX_TURNS=30
+
+# Hỏi xác nhận qua Telegram trước khi gửi/xóa email (mặc định bật)
+# GMAIL_REQUIRE_CONFIRM=0
 ```
+
+> **Bảo mật**: bot chạy agent với quyền shell trên máy chủ. Whitelist trống nghĩa là bất kỳ ai
+> tìm ra bot cũng chạy được lệnh, nên bot sẽ **từ chối khởi động** nếu `TELEGRAM_ALLOWED_USERS`
+> trống — muốn mở cho tất cả (dev) phải khai báo rõ `ALLOW_ALL_USERS=1`.
 
 ### Model Override (runtime)
 
@@ -98,7 +105,11 @@ touch PLAN.md
 
 ```bash
 # Development
-bun run src/index.ts
+bun run dev          # bun --watch run src/index.ts
+
+# Kiểm tra trước khi deploy
+bun run typecheck
+bun test
 
 # Production (PM2)
 pm2 start ecosystem.config.cjs
@@ -194,14 +205,14 @@ pm2 startup  # auto-start khi reboot
 
 ## Scaling — Chạy nhiều bot instances
 
-Bot này có thể clone để chạy nhiều instances song song, mỗi instance là 1 persona/assistant riêng (VD: Kuro cho dev, Judy cho chat).
+Bot này có thể clone để chạy nhiều instances song song, mỗi instance là 1 persona/assistant riêng (VD: 1 bot cho dev, 1 bot cho việc khác).
 
 ### Cách làm
 
 1. **Clone project** sang folder mới:
 ```bash
-cp -r my-assistant /home/user/JudyBot
-cd /home/user/JudyBot
+cp -r my-assistant /home/user/SecondBot
+cd /home/user/SecondBot
 rm -rf .git node_modules sessions.db*
 bun install
 ```
@@ -216,20 +227,20 @@ bun install
 ```javascript
 // ecosystem.config.cjs
 env: {
-  TELEGRAM_BOT_TOKEN: "your-judy-bot-token",
+  TELEGRAM_BOT_TOKEN: "your-second-bot-token",
   TELEGRAM_ALLOWED_USERS: "user_id_1,user_id_2",
   CLAUDE_MODEL: "claude-sonnet-4-6",
-  CLAUDE_WORKING_DIR: "/home/user/JudyBot",
-  CLAUDE_CONFIG_DIR: "/home/user/.claude-judy",
+  CLAUDE_WORKING_DIR: "/home/user/SecondBot",
+  CLAUDE_CONFIG_DIR: "/home/user/.claude-bot2",
 }
 ```
 
 4. **Session isolation** — tạo config dir riêng và symlink credentials:
 ```bash
-mkdir -p /home/user/.claude-judy
+mkdir -p /home/user/.claude-bot2
 # Symlink credentials để tự động nhận token refresh từ instance chính
-ln -s ~/.claude/.credentials.json /home/user/.claude-judy/.credentials.json
-cp ~/.claude/settings.json /home/user/.claude-judy/
+ln -s ~/.claude/.credentials.json /home/user/.claude-bot2/.credentials.json
+cp ~/.claude/settings.json /home/user/.claude-bot2/
 ```
 
 > **Tại sao dùng symlink?** Claude OAuth token hết hạn mỗi vài giờ và tự động refresh. Nếu copy file, instance phụ sẽ bị `exit code 1` khi token cũ hết hạn. Symlink đảm bảo mọi instance luôn dùng token mới nhất.

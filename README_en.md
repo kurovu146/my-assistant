@@ -55,7 +55,7 @@ CLAUDE_MODEL=claude-sonnet-4-6
 ```env
 # Telegram
 TELEGRAM_BOT_TOKEN=xxx
-TELEGRAM_ALLOWED_USERS=123456789    # comma-separated user IDs
+TELEGRAM_ALLOWED_USERS=123456789    # REQUIRED — comma-separated user IDs
 
 # Working directory
 CLAUDE_WORKING_DIR=~/dev
@@ -65,7 +65,14 @@ SESSION_TIMEOUT_HOURS=72
 
 # Max agent loop iterations
 CLAUDE_MAX_TURNS=30
+
+# Ask for Telegram confirmation before sending/trashing email (on by default)
+# GMAIL_REQUIRE_CONFIRM=0
 ```
+
+> **Security**: the bot runs an agent with shell access on the host. An empty whitelist means
+> anyone who finds the bot can run commands, so startup **fails** when `TELEGRAM_ALLOWED_USERS`
+> is empty — to intentionally open it up during development, set `ALLOW_ALL_USERS=1`.
 
 ### Model Override (runtime)
 
@@ -194,14 +201,14 @@ pm2 startup  # auto-start on reboot
 
 ## Scaling — Running Multiple Bot Instances
 
-This bot can be cloned to run multiple instances in parallel, each as a separate persona/assistant (e.g., Kuro for dev tasks, Judy for chat).
+This bot can be cloned to run multiple instances in parallel, each as a separate persona/assistant (e.g., one bot for dev work, another for something else).
 
 ### How to
 
 1. **Clone the project** to a new folder:
 ```bash
-cp -r my-assistant /home/user/JudyBot
-cd /home/user/JudyBot
+cp -r my-assistant /home/user/SecondBot
+cd /home/user/SecondBot
 rm -rf .git node_modules sessions.db*
 bun install
 ```
@@ -216,20 +223,20 @@ bun install
 ```javascript
 // ecosystem.config.cjs
 env: {
-  TELEGRAM_BOT_TOKEN: "your-judy-bot-token",
+  TELEGRAM_BOT_TOKEN: "your-second-bot-token",
   TELEGRAM_ALLOWED_USERS: "user_id_1,user_id_2",
   CLAUDE_MODEL: "claude-sonnet-4-6",
-  CLAUDE_WORKING_DIR: "/home/user/JudyBot",
-  CLAUDE_CONFIG_DIR: "/home/user/.claude-judy",
+  CLAUDE_WORKING_DIR: "/home/user/SecondBot",
+  CLAUDE_CONFIG_DIR: "/home/user/.claude-bot2",
 }
 ```
 
 4. **Session isolation** — create a separate config dir and symlink credentials:
 ```bash
-mkdir -p /home/user/.claude-judy
+mkdir -p /home/user/.claude-bot2
 # Symlink credentials to auto-receive token refresh from the main instance
-ln -s ~/.claude/.credentials.json /home/user/.claude-judy/.credentials.json
-cp ~/.claude/settings.json /home/user/.claude-judy/
+ln -s ~/.claude/.credentials.json /home/user/.claude-bot2/.credentials.json
+cp ~/.claude/settings.json /home/user/.claude-bot2/
 ```
 
 > **Why symlink?** Claude OAuth tokens expire every few hours and auto-refresh. If you copy the file, the secondary instance will get `exit code 1` when the old token expires. Symlink ensures every instance always uses the latest token.
