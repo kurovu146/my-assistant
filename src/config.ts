@@ -80,4 +80,8 @@ export const config = {
 
   // Gmail — hỏi xác nhận qua Telegram trước khi gửi/xóa email (GMAIL_REQUIRE_CONFIRM=0 để tắt)
   gmailRequireConfirm: process.env.GMAIL_REQUIRE_CONFIRM !== "0",
+
+  // Voyage AI — bật semantic search. Thiếu key thì memory chạy bằng FTS5 thuần.
+  voyageApiKey: process.env.VOYAGE_API_KEY || "",
+  voyageModel: process.env.VOYAGE_MODEL || "voyage-4-lite",
 };

@@ -5,6 +5,7 @@
 
 import { getClaudeProvider } from "../claude/provider.ts";
 import { getUserFacts, saveFact, type MemoryFact } from "./repository.ts";
+import { embedAndLinkFact } from "./semantic.ts";
 import { logger } from "../logger.ts";
 
 // --- Fact Extraction (Tier 1) ---
@@ -65,11 +66,12 @@ export async function extractFacts(
     if (!Array.isArray(parsed) || parsed.length === 0) return;
     const facts = parsed as Array<{ fact: string; category: string }>;
 
-    // Lưu facts vào DB
+    // Lưu facts vào DB (kèm embedding + auto-link nếu bật semantic)
     const source = userMessage.slice(0, 50);
     for (const f of facts.slice(0, 5)) {
       if (f.fact && f.fact.length > 5) {
-        saveFact(userId, f.fact, f.category || "general", source);
+        const saved = saveFact(userId, f.fact, f.category || "general", source);
+        await embedAndLinkFact(userId, saved.id, f.fact);
       }
     }
 

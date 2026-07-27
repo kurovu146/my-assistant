@@ -92,6 +92,24 @@ function addColumnIfMissing(table: string, column: string, definition: string): 
 addColumnIfMissing("memory_facts", "last_accessed_at", "INTEGER NOT NULL DEFAULT 0");
 addColumnIfMissing("memory_facts", "access_count", "INTEGER NOT NULL DEFAULT 0");
 addColumnIfMissing("query_logs", "model", "TEXT NOT NULL DEFAULT ''");
+// Vector của fact — BLOB f32 little-endian, cùng định dạng với bản Rust (memory-assistant)
+addColumnIfMissing("memory_facts", "embedding", "BLOB");
+
+// --- Semantic layer ---
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS fact_relations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fact_id_1 INTEGER NOT NULL REFERENCES memory_facts(id) ON DELETE CASCADE,
+    fact_id_2 INTEGER NOT NULL REFERENCES memory_facts(id) ON DELETE CASCADE,
+    similarity REAL NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE (fact_id_1, fact_id_2),
+    CHECK (fact_id_1 < fact_id_2)
+  )
+`);
+db.run(`CREATE INDEX IF NOT EXISTS idx_fact_relations_1 ON fact_relations (fact_id_1)`);
+db.run(`CREATE INDEX IF NOT EXISTS idx_fact_relations_2 ON fact_relations (fact_id_2)`);
 
 // --- FTS5 ---
 

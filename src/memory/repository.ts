@@ -147,6 +147,79 @@ function touchFactsAccess(factIds: number[]): void {
   );
 }
 
+export function getFactById(userId: number, factId: number): MemoryFact | null {
+  const row = db
+    .query(`SELECT * FROM memory_facts WHERE id = ? AND user_id = ?`)
+    .get(factId, userId) as any;
+  return row ? mapFact(row) : null;
+}
+
+// --- Embedding & relations (dữ liệu thuần; logic ở semantic.ts) ---
+
+export function updateFactEmbedding(factId: number, embedding: Uint8Array): void {
+  db.run(`UPDATE memory_facts SET embedding = ? WHERE id = ?`, [embedding, factId]);
+}
+
+export interface FactEmbedding {
+  id: number;
+  fact: string;
+  category: string;
+  embedding: Uint8Array;
+}
+
+export function loadAllFactEmbeddings(userId: number): FactEmbedding[] {
+  const rows = db
+    .query(
+      `SELECT id, fact, category, embedding FROM memory_facts
+       WHERE user_id = ? AND embedding IS NOT NULL`,
+    )
+    .all(userId) as any[];
+  return rows.map((r) => ({
+    id: r.id,
+    fact: r.fact,
+    category: r.category,
+    embedding: new Uint8Array(r.embedding),
+  }));
+}
+
+export function getUnembeddedFacts(userId: number): { id: number; fact: string }[] {
+  return db
+    .query(`SELECT id, fact FROM memory_facts WHERE user_id = ? AND embedding IS NULL`)
+    .all(userId) as { id: number; fact: string }[];
+}
+
+/** Liên kết 2 fact. Bảng ràng buộc fact_id_1 < fact_id_2 nên phải sắp trước khi ghi. */
+export function linkFacts(idA: number, idB: number, similarity: number): void {
+  const [lo, hi] = idA < idB ? [idA, idB] : [idB, idA];
+  db.run(
+    `INSERT INTO fact_relations (fact_id_1, fact_id_2, similarity, created_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT (fact_id_1, fact_id_2) DO UPDATE SET similarity = excluded.similarity`,
+    [lo, hi, similarity, Date.now()],
+  );
+}
+
+export interface RelatedFact {
+  id: number;
+  fact: string;
+  category: string;
+  similarity: number;
+}
+
+export function getRelatedFacts(factId: number, limit = 3): RelatedFact[] {
+  return db
+    .query(
+      `SELECT m.id, m.fact, m.category, r.similarity
+       FROM fact_relations r
+       JOIN memory_facts m
+         ON m.id = CASE WHEN r.fact_id_1 = ?1 THEN r.fact_id_2 ELSE r.fact_id_1 END
+       WHERE r.fact_id_1 = ?1 OR r.fact_id_2 = ?1
+       ORDER BY r.similarity DESC
+       LIMIT ?2`,
+    )
+    .all(factId, limit) as RelatedFact[];
+}
+
 export function getFactsByCategory(userId: number, category: string): MemoryFact[] {
   const rows = db
     .query(`SELECT * FROM memory_facts WHERE user_id = ? AND category = ? ORDER BY updated_at DESC`)

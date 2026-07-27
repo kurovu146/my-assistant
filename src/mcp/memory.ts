@@ -20,12 +20,12 @@ import {
 import { z } from "zod/v4";
 import {
   saveFact,
-  searchFacts,
   getUserFacts,
   getFactsByCategory,
   deleteFact,
   countFacts,
 } from "../memory/repository.ts";
+import { embedAndLinkFact, searchFactsHybrid } from "../memory/semantic.ts";
 
 /**
  * Tạo Memory MCP server cho 1 user cụ thể.
@@ -49,14 +49,16 @@ export function createMemoryMcpServer(userId: number) {
         },
         async (args) => {
           const saved = saveFact(userId, args.fact, args.category, "active");
-          return {
-            content: [
-              {
-                type: "text",
-                text: `✅ Đã ghi nhớ (ID: ${saved.id}): "${args.fact}" [${args.category}]`,
-              },
-            ],
-          };
+          const linked = await embedAndLinkFact(userId, saved.id, args.fact);
+
+          let text = `✅ Đã ghi nhớ (ID: ${saved.id}): "${args.fact}" [${args.category}]`;
+          if (linked.length > 0) {
+            const list = linked
+              .map((l) => `#${l.id} ${l.fact.slice(0, 50)} (${l.similarity.toFixed(2)})`)
+              .join(", ");
+            text += `\n🔗 Liên quan: ${list}`;
+          }
+          return { content: [{ type: "text", text }] };
         },
       ),
 
@@ -69,9 +71,9 @@ export function createMemoryMcpServer(userId: number) {
           limit: z.number().optional().default(10).describe("Số kết quả tối đa"),
         },
         async (args) => {
-          const facts = searchFacts(userId, args.keyword, args.limit);
+          const hits = await searchFactsHybrid(userId, args.keyword, args.limit);
 
-          if (facts.length === 0) {
+          if (hits.length === 0) {
             return {
               content: [
                 { type: "text", text: `Không tìm thấy memory nào cho: "${args.keyword}"` },
@@ -79,21 +81,26 @@ export function createMemoryMcpServer(userId: number) {
             };
           }
 
-          const text = facts
-            .map(
-              (f) => {
-                const date = new Date(f.updatedAt).toLocaleDateString("vi-VN");
-                const accessInfo = f.accessCount > 0 ? ` [x${f.accessCount}]` : "";
-                return `[${f.id}] [${f.category}] ${f.fact} (${date}${accessInfo})`;
-              },
-            )
+          const text = hits
+            .map(({ fact: f, related }) => {
+              const date = new Date(f.updatedAt).toLocaleDateString("vi-VN");
+              const accessInfo = f.accessCount > 0 ? ` [x${f.accessCount}]` : "";
+              let line = `[${f.id}] [${f.category}] ${f.fact} (${date}${accessInfo})`;
+              if (related.length > 0) {
+                const rel = related
+                  .map((r) => `#${r.id} ${r.fact.slice(0, 40)} (${r.similarity.toFixed(2)})`)
+                  .join(", ");
+                line += `\n    ↳ liên quan: ${rel}`;
+              }
+              return line;
+            })
             .join("\n");
 
           return {
             content: [
               {
                 type: "text",
-                text: `Tìm thấy ${facts.length} memories:\n\n${text}`,
+                text: `Tìm thấy ${hits.length} memories:\n\n${text}`,
               },
             ],
           };

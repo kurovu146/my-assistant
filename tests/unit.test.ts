@@ -1,7 +1,7 @@
 // tests/unit.test.ts
 // Chạy: bun test
-// DB riêng cho test — phải set TRƯỚC khi import module nào chạm db/connection.ts
-process.env.SESSIONS_DB_PATH = ":memory:";
+// Cô lập môi trường (DB :memory:, tắt Voyage) nằm ở tests/setup.ts — preload qua
+// bunfig.toml. Đặt ở đây không có tác dụng vì `import` được hoist lên trước.
 
 import { expect, test } from "bun:test";
 import { resolve } from "path";
@@ -11,6 +11,13 @@ import { parseModelOverride, resolveModelTier } from "../src/claude/router.ts";
 import { filterSensitiveContent } from "../src/telegram/content-filter.ts";
 import { saveFact, searchFacts, toFtsPhrase } from "../src/memory/repository.ts";
 import { db } from "../src/db/connection.ts";
+import {
+  bytesToEmbedding,
+  cosineSimilarity,
+  embeddingToBytes,
+  hybridScore,
+} from "../src/memory/embedding.ts";
+import { searchFactsHybrid } from "../src/memory/semantic.ts";
 
 // --- FTS5: keyword thô từng làm memory_search ném lỗi cú pháp ---
 
@@ -55,6 +62,43 @@ test("config chặn khởi động khi whitelist rỗng hoặc sai định dạn
   expect(await loadConfigWith({ TELEGRAM_ALLOWED_USERS: "123,456" })).toBe(0);
   expect(await loadConfigWith({ ALLOW_ALL_USERS: "1" })).toBe(0);
 }, 15_000);
+
+// --- Vector helpers (định dạng phải khớp bản Rust) ---
+
+test("embedding round-trip qua BLOB giữ nguyên giá trị f32", () => {
+  const original = [0.125, -0.5, 0, 1, -0.03125];
+  const restored = bytesToEmbedding(embeddingToBytes(original));
+
+  expect(restored).toEqual(original); // các giá trị này biểu diễn chính xác trong f32
+  expect(embeddingToBytes(original).byteLength).toBe(original.length * 4);
+});
+
+test("cosineSimilarity xử lý đúng các trường hợp biên", () => {
+  expect(cosineSimilarity([1, 2, 3], [1, 2, 3])).toBeCloseTo(1, 6);
+  expect(cosineSimilarity([1, 0], [0, 1])).toBeCloseTo(0, 6);
+  expect(cosineSimilarity([1, 0], [-1, 0])).toBeCloseTo(-1, 6);
+  expect(cosineSimilarity([1, 2], [1, 2, 3])).toBe(0); // khác độ dài
+  expect(cosineSimilarity([], [])).toBe(0);
+  expect(cosineSimilarity([0, 0], [1, 1])).toBe(0); // vector 0 → không chia cho 0
+});
+
+test("hybridScore bỏ qua vector khi không có kết quả vector nào", () => {
+  expect(hybridScore(0.8, 0, false)).toBe(0.8);
+  expect(hybridScore(0.5, 1, true)).toBeCloseTo(0.4 * 0.5 + 0.6 * 1, 6);
+});
+
+// --- Semantic search phải chạy được khi tắt embedding ---
+
+test("searchFactsHybrid rơi về FTS khi không có VOYAGE_API_KEY", async () => {
+  saveFact(2, "Anh dùng Bun thay cho Node.js", "preference");
+  saveFact(2, "Project BasoTien viết bằng Go", "project");
+
+  const hits = await searchFactsHybrid(2, "Bun");
+
+  expect(hits.length).toBeGreaterThan(0);
+  expect(hits[0]!.fact.fact).toContain("Bun");
+  expect(hits[0]!.related).toEqual([]); // chưa embed thì không có liên kết
+});
 
 // --- Telegram 4096 char limit ---
 

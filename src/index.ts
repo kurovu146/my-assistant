@@ -16,6 +16,7 @@ import { config } from "./config.ts";
 import { getClaudeProvider } from "./claude/provider.ts";
 import { startWebMonitor, stopWebMonitor } from "./scheduler/web-monitor.ts";
 import { startMemoryConsolidation, stopMemoryConsolidation } from "./memory/consolidation.ts";
+import { backfillFactEmbeddings } from "./memory/semantic.ts";
 import { startNewsDigest, stopNewsDigest } from "./scheduler/news-digest.ts";
 import { startSkillWatcher, stopSkillWatcher } from "./claude/skills.ts";
 import { installConfirm } from "./telegram/confirm.ts";
@@ -93,6 +94,11 @@ async function main() {
 
     // Memory Consolidation — gộp facts mỗi 24h
     startMemoryConsolidation(config.allowedUsers);
+
+    // Backfill vector cho fact cũ — chạy nền, không chặn khởi động
+    backfillFactEmbeddings(config.allowedUsers).catch((err) =>
+      logger.error("❌ Backfill embeddings:", err),
+    );
 
     // News Digest — gửi tin tức mỗi sáng 8h VN
     startNewsDigest(sendTelegram);
