@@ -6,6 +6,7 @@
 import { getClaudeProvider } from "../claude/provider.ts";
 import { resolveModelTier } from "../claude/router.ts";
 import { FALLBACK_CATEGORY } from "./categories.ts";
+import { db } from "../db/connection.ts";
 import { getUserFacts, saveFact, deleteFact, countFacts, cleanupOldData } from "./repository.ts";
 import { embedAndLinkFact } from "./semantic.ts";
 import { logger } from "../logger.ts";
@@ -127,6 +128,40 @@ export async function consolidateUserFacts(userId: number): Promise<Consolidatio
   }
 }
 
+// --- Nhịp chạy ---
+
+const LAST_RUN_KEY = "consolidation_last_run";
+const CONSOLIDATION_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/** Ghi mốc đã gộp xong, để lần khởi động sau biết mà bỏ qua. */
+export function markConsolidated(at: number = Date.now()): void {
+  db.run(
+    `INSERT INTO db_meta (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    [LAST_RUN_KEY, String(at)],
+  );
+}
+
+/**
+ * Đã đủ 24h kể từ lần gộp trước chưa?
+ *
+ * Mỗi vòng gộp đều mất mát (nhiều fact thành một). Trước đây hàm khởi động chạy
+ * gộp sau 5 phút bất kể lần trước là khi nào, nên bot restart càng nhiều thì memory
+ * càng teo — đo được 51 → 26 fact trong một buổi chiều deploy. Chưa có mốc thì coi
+ * như vừa gộp: thà trễ một ngày còn hơn gộp thừa một vòng không lấy lại được.
+ */
+export function shouldConsolidateNow(now: number = Date.now()): boolean {
+  const row = db.query(`SELECT value FROM db_meta WHERE key = ?`).get(LAST_RUN_KEY) as
+    | { value: string }
+    | undefined;
+
+  if (!row) {
+    markConsolidated(now);
+    return false;
+  }
+  return now - Number(row.value) >= CONSOLIDATION_INTERVAL_MS;
+}
+
 // --- Cron ---
 
 let intervalId: ReturnType<typeof setInterval> | null = null;
@@ -139,7 +174,7 @@ let targetUserIds: number[] = [];
 export function startMemoryConsolidation(userIds: number[]): void {
   targetUserIds = userIds;
 
-  // Chạy lần đầu sau 5 phút (để bot ổn định)
+  // Sau 5 phút (để bot ổn định) — nhưng chỉ thực sự gộp nếu đã quá 24h
   setTimeout(() => runConsolidation(), 5 * 60 * 1000);
 
   // Cron mỗi 24h
@@ -156,14 +191,20 @@ export function stopMemoryConsolidation(): void {
 }
 
 async function runConsolidation(): Promise<void> {
-  // Cleanup old data first
+  // Cleanup chỉ xóa log/session quá hạn nên chạy lúc nào cũng an toàn
   const cleanup = cleanupOldData();
   if (cleanup.logsDeleted > 0 || cleanup.sessionsDeleted > 0) {
     logger.log(`🧹 Cleanup: deleted ${cleanup.logsDeleted} old logs, ${cleanup.sessionsDeleted} old sessions`);
   }
 
-  // Then consolidate facts
+  // Gộp facts thì không — mỗi vòng đều mất mát, phải cách nhau đủ 24h
+  if (!shouldConsolidateNow()) {
+    logger.log("🧹 Memory consolidation: bỏ qua (chưa đủ 24h kể từ lần gộp trước)");
+    return;
+  }
+
   for (const userId of targetUserIds) {
     await consolidateUserFacts(userId);
   }
+  markConsolidated();
 }

@@ -21,7 +21,11 @@ import {
 import { searchFactsHybrid } from "../src/memory/semantic.ts";
 import { chunkText } from "../src/memory/knowledge.ts";
 import { buildExtractionPrompt, EXTRACT_PROMPT } from "../src/memory/extraction.ts";
-import { CONSOLIDATION_PROMPT } from "../src/memory/consolidation.ts";
+import {
+  CONSOLIDATION_PROMPT,
+  markConsolidated,
+  shouldConsolidateNow,
+} from "../src/memory/consolidation.ts";
 import { categoryGuide, MEMORY_CATEGORIES } from "../src/memory/categories.ts";
 import { buildContextSnippet, parseEntities } from "../src/memory/entities.ts";
 
@@ -333,6 +337,32 @@ test("filterSensitiveContent che token và giữ nguyên text thường", () => 
   expect(result.redactedCount).toBe(1);
 
   expect(filterSensitiveContent("chỉ là câu bình thường").redactedCount).toBe(0);
+});
+
+// --- Consolidation không được chạy lại mỗi lần restart ---
+
+test("shouldConsolidateNow bỏ qua lần đầu và ghi mốc", () => {
+  db.run(`DELETE FROM db_meta WHERE key = 'consolidation_last_run'`);
+
+  // Chưa có mốc: nếu chạy luôn thì mỗi lần restart lại gộp một vòng,
+  // memory teo theo số lần deploy (đo được: 51 → 26 fact trong một buổi chiều)
+  expect(shouldConsolidateNow()).toBe(false);
+
+  // ...nhưng phải ghi mốc, nếu không lần restart sau lại rơi vào đúng nhánh này
+  const row = db.query(`SELECT value FROM db_meta WHERE key = 'consolidation_last_run'`).get() as
+    | { value: string }
+    | undefined;
+  expect(row).toBeDefined();
+});
+
+test("shouldConsolidateNow chỉ cho chạy khi đã quá 24h", () => {
+  const DAY = 86_400_000;
+
+  markConsolidated(Date.now() - 2 * 3_600_000); // 2 giờ trước
+  expect(shouldConsolidateNow()).toBe(false);
+
+  markConsolidated(Date.now() - DAY - 60_000); // 24h + 1 phút
+  expect(shouldConsolidateNow()).toBe(true);
 });
 
 // --- Taxonomy category ---
