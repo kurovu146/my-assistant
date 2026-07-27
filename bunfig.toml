@@ -1,0 +1,3 @@
+[test]
+# Chạy trước mọi file test — cô lập DB và tắt Voyage. Xem tests/setup.ts.
+preload = ["./tests/setup.ts"]
