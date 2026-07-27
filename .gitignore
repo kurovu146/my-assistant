@@ -35,6 +35,8 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
 .telegram-uploads/
 bun.lockb
 PLAN.md

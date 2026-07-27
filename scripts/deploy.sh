@@ -12,6 +12,10 @@ git pull origin main
 echo "📥 Installing dependencies..."
 ~/.bun/bin/bun install
 
+echo "🔎 Typecheck + test..."
+~/.bun/bin/bun run typecheck
+~/.bun/bin/bun test
+
 echo "🔄 Restarting bot..."
 pm2 restart my-assistant --update-env
 pm2 save

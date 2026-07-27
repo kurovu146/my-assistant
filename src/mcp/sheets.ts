@@ -53,9 +53,7 @@ function getSheetsClient(): sheets_v4.Sheets {
  * Supports: https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit...
  */
 function extractSpreadsheetId(input: string): string {
-  const match = input.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
-  if (match) return match[1];
-  return input; // Assume it's already an ID
+  return input.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/)?.[1] ?? input;
 }
 
 /**
@@ -84,10 +82,10 @@ function formatAsTable(values: string[][]): string {
     }).join(" | ");
 
   const lines: string[] = [];
-  lines.push(formatRow(values[0]));
+  lines.push(formatRow(values[0] ?? []));
   lines.push(cappedWidths.map((w) => "-".repeat(w)).join("-+-"));
   for (let i = 1; i < values.length; i++) {
-    lines.push(formatRow(values[i]));
+    lines.push(formatRow(values[i] ?? []));
   }
 
   return lines.join("\n");
@@ -153,7 +151,7 @@ export function createSheetsMcpServer() {
           }
 
           const table = formatAsTable(values);
-          const text = `📊 **${range}** (${values.length} rows x ${values[0].length} cols)\n\n\`\`\`\n${table}\n\`\`\``;
+          const text = `📊 **${range}** (${values.length} rows x ${values[0]?.length ?? 0} cols)\n\n\`\`\`\n${table}\n\`\`\``;
 
           // Truncate if too large
           if (text.length > 12000) {
