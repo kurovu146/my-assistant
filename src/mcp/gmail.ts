@@ -22,6 +22,18 @@ import {
 import { z } from "zod/v4";
 import { google, type gmail_v1 } from "googleapis";
 import { logger } from "../logger.ts";
+import { config } from "../config.ts";
+import { requestConfirm } from "../telegram/confirm.ts";
+
+/**
+ * Chặn hành động không hoàn tác được cho tới khi owner bấm duyệt trên Telegram.
+ * Trả về text lỗi nếu bị chặn, null nếu được phép đi tiếp.
+ */
+async function blockedByConfirm(question: string): Promise<string | null> {
+  if (!config.gmailRequireConfirm) return null;
+  const { ok, reason } = await requestConfirm(question);
+  return ok ? null : `🚫 Đã hủy: ${reason}`;
+}
 
 // --- Gmail API Client ---
 
@@ -302,6 +314,11 @@ export function createGmailMcpServer() {
         async (args) => {
           const gmail = getGmailClient();
 
+          const blocked = await blockedByConfirm(
+            `🗑️ Chuyển ${args.messageIds.length} email vào thùng rác?`,
+          );
+          if (blocked) return { content: [{ type: "text", text: blocked }] };
+
           const results = await Promise.all(
             args.messageIds.map(async (id) => {
               try {
@@ -388,6 +405,15 @@ export function createGmailMcpServer() {
         },
         async (args) => {
           const gmail = getGmailClient();
+
+          const blocked = await blockedByConfirm(
+            `📧 Gửi email?\n\nTới: ${args.to}` +
+              (args.cc ? `\nCc: ${args.cc}` : "") +
+              (args.bcc ? `\nBcc: ${args.bcc}` : "") +
+              `\nTiêu đề: ${args.subject}\n\n${args.body.slice(0, 500)}` +
+              (args.body.length > 500 ? "..." : ""),
+          );
+          if (blocked) return { content: [{ type: "text", text: blocked }] };
 
           const raw = encodeEmail(args.to, args.subject, args.body, args.cc, args.bcc);
 

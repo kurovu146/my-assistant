@@ -11,7 +11,6 @@ import { createGmailMcpServer } from "../mcp/gmail.ts";
 import { logger } from "../logger.ts";
 import { createSheetsMcpServer } from "../mcp/sheets.ts";
 import { createMemoryMcpServer } from "../mcp/memory.ts";
-import { createIpcMcpServer } from "../mcp/ipc.ts";
 import { buildMemoryContext } from "../memory/extraction.ts";
 import type {
   AgentProvider,
@@ -22,6 +21,33 @@ import type {
   CumulativeUsage,
   UsageStats,
 } from "./types.ts";
+
+// --- Tools ---
+// Lưu ý: `allowedTools` của SDK là danh sách auto-approve, KHÔNG giới hạn tool.
+// Muốn giới hạn thật thì phải dùng `tools` (base set) + `disallowedTools`.
+
+const READONLY_TOOLS = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"];
+const WRITE_TOOLS = ["Bash", "Write", "Edit", "NotebookEdit"];
+
+/** Log mọi lệnh shell agent chạy — dấu vết điều tra khi prompt injection lọt qua */
+const auditBashHook = {
+  PreToolUse: [
+    {
+      hooks: [
+        async (input: unknown) => {
+          const { tool_name, tool_input } = input as {
+            tool_name?: string;
+            tool_input?: { command?: string };
+          };
+          if (tool_name === "Bash" && tool_input?.command) {
+            logger.log(`🔒 Bash: ${tool_input.command.slice(0, 300)}`);
+          }
+          return { continue: true };
+        },
+      ],
+    },
+  ],
+};
 
 // --- Retry with backoff + model failover ---
 
@@ -60,7 +86,6 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
   private cachedSystemPrompt: string | null = null;
   private gmailMcp: ReturnType<typeof createGmailMcpServer>;
   private sheetsMcp: ReturnType<typeof createSheetsMcpServer>;
-  private ipcMcp: ReturnType<typeof createIpcMcpServer>;
   private cumulativeUsage: CumulativeUsage = {
     totalInputTokens: 0,
     totalOutputTokens: 0,
@@ -71,7 +96,6 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
   constructor() {
     this.gmailMcp = createGmailMcpServer();
     this.sheetsMcp = createSheetsMcpServer();
-    this.ipcMcp = createIpcMcpServer();
     setOnCacheClear(() => {
       this.cachedSystemPrompt = null;
     });
@@ -191,22 +215,17 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
               ...(this.gmailMcp ? { gmail: this.gmailMcp } : {}),
               ...(this.sheetsMcp ? { sheets: this.sheetsMcp } : {}),
               ...(memoryMcp ? { memory: memoryMcp } : {}),
-              ipc: this.ipcMcp,
             },
             allowedTools: [
-              "Bash",
-              "Read",
-              "Write",
-              "Glob",
-              "Grep",
-              "WebSearch",
-              "WebFetch",
+              ...READONLY_TOOLS,
+              ...WRITE_TOOLS,
               ...(this.gmailMcp ? ["mcp__gmail__*"] : []),
               ...(this.sheetsMcp ? ["mcp__sheets__*"] : []),
               ...(memoryMcp ? ["mcp__memory__*"] : []),
-              "mcp__ipc__*",
             ],
-            permissionMode: "bypassPermissions",
+            permissionMode: "bypassPermissions" as const,
+            allowDangerouslySkipPermissions: true,
+            hooks: auditBashHook,
             maxTurns: (activeModel || config.claudeModel).includes("haiku") ? 5 : config.maxTurns,
             ...(sessionId ? { resume: sessionId } : {}),
             abortController: (() => {

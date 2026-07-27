@@ -21,14 +21,14 @@ import { logger } from "../logger.ts";
  * Nếu không → trả lời "không có quyền" và dừng.
  * Nếu có → gọi next() để tiếp tục xử lý.
  *
- * Nếu whitelist rỗng → cho phép tất cả (dev mode).
- * ⚠️ Chỉ để trống khi dev, production luôn set TELEGRAM_ALLOWED_USERS
+ * Whitelist rỗng chỉ xảy ra khi khai báo ALLOW_ALL_USERS=1 — config.ts đã chặn
+ * trường hợp quên set (xem parseAllowedUsers), nên ở đây rỗng = cố ý mở cho dev.
  *
  * @example
  * // .env
  * TELEGRAM_ALLOWED_USERS=123456789        // 1 user
  * TELEGRAM_ALLOWED_USERS=123456,789012    // nhiều user
- * TELEGRAM_ALLOWED_USERS=                  // tất cả (dev mode)
+ * ALLOW_ALL_USERS=1                        // tất cả (dev mode, phải khai báo rõ)
  */
 export async function authMiddleware(
   ctx: Context,
