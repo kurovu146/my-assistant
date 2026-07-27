@@ -169,6 +169,7 @@ skills/                   # Knowledge base (.md files, auto-loaded)
 | `/resume` | Resume a previous session (last 5) |
 | `/stop` | Abort a running query |
 | `/status` | Model, uptime, usage stats |
+| `/usage` | Token usage: today / 7 days / 30 days, broken down by model |
 | `/reload` | Reload skills without restart |
 | `/memory` | View memory facts by category |
 | `/monitor <url> [label]` | Add URL to watch list |

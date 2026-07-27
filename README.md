@@ -169,6 +169,7 @@ skills/                   # Knowledge base (file .md, tự động load)
 | `/resume` | Tiếp tục phiên cũ (5 phiên gần nhất) |
 | `/stop` | Dừng query đang chạy |
 | `/status` | Model, uptime, usage stats |
+| `/usage` | Token đã dùng: hôm nay / 7 ngày / 30 ngày, kèm breakdown theo model |
 | `/reload` | Reload skills không cần restart |
 | `/memory` | Xem memory facts theo category |
 | `/monitor <url> [label]` | Thêm URL vào danh sách theo dõi |

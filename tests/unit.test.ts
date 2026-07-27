@@ -10,6 +10,7 @@ import { splitMessage } from "../src/telegram/formatter.ts";
 import { parseModelOverride, resolveModelTier } from "../src/claude/router.ts";
 import { filterSensitiveContent } from "../src/telegram/content-filter.ts";
 import { saveFact, searchFacts, toFtsQuery } from "../src/memory/repository.ts";
+import { getUsageByPeriod, logQuery, type QueryLogEntry } from "../src/db/queries.ts";
 import { db } from "../src/db/connection.ts";
 import {
   bytesToEmbedding,
@@ -165,6 +166,96 @@ test("buildContextSnippet lấy đoạn quanh entity", () => {
   expect(snippet.length).toBeLessThanOrEqual(105);
 
   expect(buildContextSnippet(text, "KhôngCóTrongVănBản")).toBe("");
+});
+
+// --- Usage stats theo kỳ (rolling) ---
+
+const DAY = 86_400_000;
+
+/** Ghi 1 log rồi lùi created_at về quá khứ — logQuery cố tình không nhận created_at. */
+function seedLog(userId: number, ageMs: number, over: Partial<QueryLogEntry> = {}): void {
+  logQuery({
+    userId,
+    promptPreview: "test",
+    responseTimeMs: 1000,
+    tokensIn: 100,
+    tokensOut: 200,
+    cacheRead: 1000,
+    cacheWrite: 50,
+    costUsd: 0.5,
+    toolsUsed: [],
+    model: "claude-opus-5",
+    ...over,
+  });
+  if (ageMs > 0) {
+    db.run(`UPDATE query_logs SET created_at = ? WHERE id = (SELECT MAX(id) FROM query_logs)`, [
+      Date.now() - ageMs,
+    ]);
+  }
+}
+
+test("getUsageByPeriod tách đúng 3 khung rolling", () => {
+  const userId = 10;
+  seedLog(userId, 0); // ngay bây giờ → chắc chắn thuộc hôm nay
+  seedLog(userId, 3 * DAY);
+  seedLog(userId, 20 * DAY);
+  seedLog(userId, 100 * DAY); // ngoài mọi khung
+
+  const report = getUsageByPeriod(userId);
+
+  expect(report.today.queries).toBe(1);
+  expect(report.week.queries).toBe(2);
+  expect(report.month.queries).toBe(3);
+});
+
+test("getUsageByPeriod loại log vừa vượt biên 30 ngày", () => {
+  seedLog(11, 30 * DAY + 60_000); // quá 1 phút
+  expect(getUsageByPeriod(11).month.queries).toBe(0);
+
+  seedLog(12, 29 * DAY);
+  expect(getUsageByPeriod(12).month.queries).toBe(1);
+});
+
+test("getUsageByPeriod cộng dồn cache tokens và cost", () => {
+  const userId = 13;
+  seedLog(userId, 0, { cacheRead: 1_000_000, cacheWrite: 25_000, tokensIn: 500, costUsd: 1.5 });
+  seedLog(userId, DAY, { cacheRead: 2_000_000, cacheWrite: 75_000, tokensIn: 300, costUsd: 2.5 });
+
+  const report = getUsageByPeriod(userId);
+
+  expect(report.today.cacheRead).toBe(1_000_000);
+  expect(report.week.cacheRead).toBe(3_000_000);
+  expect(report.week.cacheWrite).toBe(100_000);
+  expect(report.week.tokensIn).toBe(800);
+  expect(report.week.costUsd).toBeCloseTo(4, 6);
+});
+
+test("getUsageByPeriod gom theo model, log thiếu model không bị bỏ sót", () => {
+  const userId = 14;
+  seedLog(userId, 0, { model: "claude-sonnet-5", costUsd: 1 });
+  seedLog(userId, DAY, { model: "claude-opus-5", costUsd: 5 });
+  seedLog(userId, 2 * DAY, { model: "claude-opus-5", costUsd: 3 });
+  seedLog(userId, 3 * DAY, { model: "", costUsd: 0.5 });
+
+  const { byModel } = getUsageByPeriod(userId);
+
+  // Sắp theo cost giảm dần
+  expect(byModel.map((m) => m.model)).toEqual([
+    "claude-opus-5",
+    "claude-sonnet-5",
+    "(không rõ)",
+  ]);
+  expect(byModel[0]!.queries).toBe(2);
+  expect(byModel[0]!.costUsd).toBeCloseTo(8, 6);
+});
+
+test("getUsageByPeriod trả về số 0 khi user chưa có query nào", () => {
+  const report = getUsageByPeriod(999);
+
+  expect(report.today.queries).toBe(0);
+  expect(report.month.costUsd).toBe(0);
+  expect(report.month.cacheRead).toBe(0);
+  expect(report.byModel).toEqual([]);
 });
 
 // --- Telegram 4096 char limit ---

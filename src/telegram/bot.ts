@@ -20,6 +20,7 @@ import {
   handleResume,
   handleResumeCallback,
   handleStatus,
+  handleUsage,
   handleStop,
   handleReload,
   handleMonitor,
@@ -98,6 +99,7 @@ export function createBot(): Bot {
   bot.command("new", handleNew);
   bot.command("resume", handleResume);
   bot.command("status", handleStatus);
+  bot.command("usage", handleUsage);
   bot.command("stop", handleStop);
   bot.command("reload", handleReload);
   bot.command("monitor", handleMonitor);
@@ -317,16 +319,18 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
 
     // Log query analytics (kèm model)
     const responseTimeMs = Date.now() - startTime;
-    logQuery(
+    logQuery({
       userId,
-      prompt,
+      promptPreview: prompt,
       responseTimeMs,
-      response.usage?.inputTokens || 0,
-      response.usage?.outputTokens || 0,
-      response.usage?.costUSD || 0,
-      response.toolsUsed,
-      response.model || "",
-    );
+      tokensIn: response.usage?.inputTokens ?? 0,
+      tokensOut: response.usage?.outputTokens ?? 0,
+      cacheRead: response.usage?.cacheReadTokens ?? 0,
+      cacheWrite: response.usage?.cacheCreationTokens ?? 0,
+      costUsd: response.usage?.costUSD ?? 0,
+      toolsUsed: response.toolsUsed,
+      model: response.model,
+    });
 
     // Content filter — redact secrets trước khi gửi
     const safeText = sanitizeResponse(response.text);

@@ -94,6 +94,9 @@ function addColumnIfMissing(table: string, column: string, definition: string): 
 addColumnIfMissing("memory_facts", "last_accessed_at", "INTEGER NOT NULL DEFAULT 0");
 addColumnIfMissing("memory_facts", "access_count", "INTEGER NOT NULL DEFAULT 0");
 addColumnIfMissing("query_logs", "model", "TEXT NOT NULL DEFAULT ''");
+// Cache tokens — thiếu hai cột này thì tokens_in gần như vô nghĩa với agent nhiều turn
+addColumnIfMissing("query_logs", "cache_read_tokens", "INTEGER NOT NULL DEFAULT 0");
+addColumnIfMissing("query_logs", "cache_creation_tokens", "INTEGER NOT NULL DEFAULT 0");
 // Vector của fact — BLOB f32 little-endian, cùng định dạng với bản Rust (memory-assistant)
 addColumnIfMissing("memory_facts", "embedding", "BLOB");
 

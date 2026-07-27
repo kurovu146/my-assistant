@@ -66,6 +66,7 @@ async function main() {
     { command: "new", description: "Phiên hội thoại mới" },
     { command: "resume", description: "Tiếp tục phiên cũ" },
     { command: "status", description: "Xem trạng thái & thống kê" },
+    { command: "usage", description: "Token đã dùng theo kỳ" },
     { command: "stop", description: "Dừng query đang chạy" },
     { command: "reload", description: "Reload skills" },
     { command: "memory", description: "Xem bộ nhớ dài hạn" },

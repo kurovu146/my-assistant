@@ -5,7 +5,7 @@
 
 import type { Context } from "grammy";
 import { clearActiveSession, getActiveSession, getRecentSessions, setActiveSession } from "../db/sessions.ts";
-import { getQueryStats } from "../db/queries.ts";
+import { getQueryStats, getUsageByPeriod, type PeriodUsage } from "../db/queries.ts";
 import { addMonitoredUrl, removeMonitoredUrl, getUserMonitoredUrls } from "../db/monitors.ts";
 import { getUserFacts, countFacts } from "../memory/repository.ts";
 import { countDocuments } from "../memory/knowledge.ts";
@@ -41,6 +41,7 @@ export async function handleStart(ctx: Context): Promise<void> {
       `/resume — Tiếp tục phiên cũ\n` +
       `/stop — Dừng query đang chạy\n` +
       `/status — Xem trạng thái\n` +
+      `/usage — Token đã dùng theo kỳ\n` +
       `/memory — Xem bộ nhớ dài hạn\n` +
       `/reload — Reload skills\n\n` +
       `Gửi tin nhắn bất kỳ để bắt đầu! 🚀`,
@@ -178,6 +179,45 @@ function formatUptime(ms: number): string {
   if (hours > 0) return `${hours}h ${minutes}m`;
   if (minutes > 0) return `${minutes}m`;
   return `${seconds}s`;
+}
+
+/**
+ * /usage — Token đã dùng theo 3 khung rolling: hôm nay, 7 ngày, 30 ngày
+ */
+export async function handleUsage(ctx: Context): Promise<void> {
+  const userId = ctx.from?.id;
+  if (userId === undefined) return;
+
+  const report = getUsageByPeriod(userId);
+
+  // Retention xóa log quá 90 ngày, nên khung 30 ngày rỗng nghĩa là chưa dùng gì gần đây
+  if (report.month.queries === 0) {
+    await ctx.reply("📊 Chưa có dữ liệu usage trong 30 ngày qua. Gửi vài tin nhắn rồi quay lại nhé!");
+    return;
+  }
+
+  // Tự ghép thay vì toLocaleDateString: dấu phân cách đổi theo bản ICU của môi trường
+  const now = new Date();
+  const today = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const modelLines = report.byModel
+    .map((m) => `   ${m.model.replace(/^claude-/, "")} — ${m.queries} query · $${m.costUsd.toFixed(2)}`)
+    .join("\n");
+
+  await ctx.reply(
+    `📊 Token usage\n\n` +
+      `📅 Hôm nay (${today})\n${formatPeriod(report.today)}\n\n` +
+      `📆 7 ngày qua\n${formatPeriod(report.week)}\n\n` +
+      `🗓 30 ngày qua\n${formatPeriod(report.month)}\n\n` +
+      `🤖 Theo model (30 ngày)\n${modelLines}`,
+  );
+}
+
+function formatPeriod(p: PeriodUsage): string {
+  return (
+    `   ${p.queries} queries · ${formatTokenCount(p.tokensIn)} in · ${formatTokenCount(p.tokensOut)} out\n` +
+    `   Cache: ${formatTokenCount(p.cacheRead)} read · ${formatTokenCount(p.cacheWrite)} write\n` +
+    `   Quy đổi API: $${p.costUsd.toFixed(2)}`
+  );
 }
 
 function formatTokenCount(tokens: number): string {
