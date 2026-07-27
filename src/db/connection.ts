@@ -13,6 +13,8 @@ export const db = new Database(DB_PATH);
 // Bot handler và scheduler cùng ghi → WAL + chờ khi bị khóa
 db.run("PRAGMA journal_mode = WAL");
 db.run("PRAGMA busy_timeout = 5000");
+// Bắt buộc để ON DELETE CASCADE hoạt động (xóa doc phải xóa chunk theo)
+db.run("PRAGMA foreign_keys = ON");
 
 // --- Schema ---
 
@@ -110,6 +112,107 @@ db.run(`
 `);
 db.run(`CREATE INDEX IF NOT EXISTS idx_fact_relations_1 ON fact_relations (fact_id_1)`);
 db.run(`CREATE INDEX IF NOT EXISTS idx_fact_relations_2 ON fact_relations (fact_id_2)`);
+
+// --- Knowledge base ---
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS knowledge_documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '',
+    tags TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+  )
+`);
+db.run(`CREATE INDEX IF NOT EXISTS idx_knowledge_docs_user ON knowledge_documents (user_id, created_at)`);
+
+db.run(`
+  CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_docs_fts USING fts5(
+    title, content,
+    content='knowledge_documents',
+    content_rowid='id'
+  )
+`);
+db.run(`
+  CREATE TRIGGER IF NOT EXISTS knowledge_docs_ai AFTER INSERT ON knowledge_documents BEGIN
+    INSERT INTO knowledge_docs_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
+  END
+`);
+db.run(`
+  CREATE TRIGGER IF NOT EXISTS knowledge_docs_ad AFTER DELETE ON knowledge_documents BEGIN
+    INSERT INTO knowledge_docs_fts(knowledge_docs_fts, rowid, title, content)
+    VALUES ('delete', old.id, old.title, old.content);
+  END
+`);
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS knowledge_chunks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    doc_id INTEGER NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE,
+    chunk_index INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    embedding BLOB,
+    created_at INTEGER NOT NULL,
+    UNIQUE (doc_id, chunk_index)
+  )
+`);
+
+db.run(`
+  CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_chunks_fts USING fts5(
+    content, content='knowledge_chunks', content_rowid='id'
+  )
+`);
+db.run(`
+  CREATE TRIGGER IF NOT EXISTS knowledge_chunks_ai AFTER INSERT ON knowledge_chunks BEGIN
+    INSERT INTO knowledge_chunks_fts(rowid, content) VALUES (new.id, new.content);
+  END
+`);
+db.run(`
+  CREATE TRIGGER IF NOT EXISTS knowledge_chunks_ad AFTER DELETE ON knowledge_chunks BEGIN
+    INSERT INTO knowledge_chunks_fts(knowledge_chunks_fts, rowid, content)
+    VALUES ('delete', old.id, old.content);
+  END
+`);
+
+// --- Entity graph ---
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS entities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE (user_id, name, entity_type)
+  )
+`);
+db.run(`CREATE INDEX IF NOT EXISTS idx_entities_user ON entities (user_id, name)`);
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS entity_mentions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    source_type TEXT NOT NULL,
+    source_id INTEGER NOT NULL,
+    context TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    UNIQUE (entity_id, source_type, source_id)
+  )
+`);
+db.run(`CREATE INDEX IF NOT EXISTS idx_entity_mentions ON entity_mentions (entity_id)`);
+
+// Fact ↔ tài liệu: fact nào rút ra từ doc nào
+db.run(`
+  CREATE TABLE IF NOT EXISTS memory_kb_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fact_id INTEGER NOT NULL REFERENCES memory_facts(id) ON DELETE CASCADE,
+    doc_id INTEGER NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    UNIQUE (fact_id, doc_id)
+  )
+`);
 
 // --- FTS5 ---
 

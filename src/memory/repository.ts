@@ -44,12 +44,20 @@ export function saveFact(userId: number, fact: string, category: string = "gener
 }
 
 /**
- * Bọc keyword thành phrase query của FTS5.
- * Keyword thô ("email: abc", "a-b", "AND") là cú pháp FTS hợp lệ → query ném lỗi;
- * phrase query coi tất cả là text cần tìm.
+ * Chuyển keyword người dùng thành query FTS5 an toàn.
+ *
+ * Mỗi token được bọc thành phrase riêng rồi nối bằng OR:
+ * - Bọc phrase để ký tự đặc biệt ("email:", "a-b", "AND") không bị hiểu là cú pháp
+ * - Nối OR thay vì gộp cả câu thành một cụm, nếu không câu hỏi dài
+ *   ("tại sao không dùng Node") sẽ không khớp gì và FTS đóng góp 0 vào điểm hybrid
  */
-export function toFtsPhrase(keyword: string): string {
-  return `"${keyword.replace(/"/g, '""')}"`;
+export function toFtsQuery(keyword: string): string {
+  const tokens = keyword
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((t) => `"${t.replace(/"/g, '""')}"`);
+  return tokens.join(" OR ");
 }
 
 export function searchFacts(userId: number, keyword: string, limit: number = 20): MemoryFact[] {
@@ -66,7 +74,7 @@ export function searchFacts(userId: number, keyword: string, limit: number = 20)
            ORDER BY rank
            LIMIT ?`,
         )
-        .all(toFtsPhrase(keyword), userId, limit) as any[];
+        .all(toFtsQuery(keyword), userId, limit) as any[];
     } catch {
       ftsRows = [];
     }

@@ -8,6 +8,8 @@ import { clearActiveSession, getActiveSession, getRecentSessions, setActiveSessi
 import { getQueryStats } from "../db/queries.ts";
 import { addMonitoredUrl, removeMonitoredUrl, getUserMonitoredUrls } from "../db/monitors.ts";
 import { getUserFacts, countFacts } from "../memory/repository.ts";
+import { countDocuments } from "../memory/knowledge.ts";
+import { countEntities } from "../memory/entities.ts";
 import { timeAgo, TOOL_ICONS } from "./formatter.ts";
 import { config } from "../config.ts";
 import { getClaudeProvider } from "../claude/provider.ts";
@@ -295,8 +297,10 @@ export async function handleMemory(ctx: Context): Promise<void> {
 
   const total = countFacts(userId);
   const facts = getUserFacts(userId, 20);
+  const docs = countDocuments(userId);
+  const entities = countEntities(userId);
 
-  if (total === 0) {
+  if (total === 0 && docs === 0) {
     await ctx.reply(
       "🧠 Memory: chưa có gì.\n\n" +
         "Em sẽ tự động ghi nhớ thông tin quan trọng từ các cuộc hội thoại, " +
@@ -313,7 +317,11 @@ export async function handleMemory(ctx: Context): Promise<void> {
     grouped.set(f.category, list);
   }
 
-  let text = `🧠 Memory: ${total} facts\n`;
+  const extra = [
+    docs > 0 ? `📄 ${docs} tài liệu` : "",
+    entities > 0 ? `🏷 ${entities} entity` : "",
+  ].filter(Boolean);
+  let text = `🧠 Memory: ${total} facts${extra.length ? ` · ${extra.join(" · ")}` : ""}\n`;
   for (const [category, categoryFacts] of grouped) {
     text += `\n📁 ${category} (${categoryFacts.length})\n`;
     for (const f of categoryFacts) {

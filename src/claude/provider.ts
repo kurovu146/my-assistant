@@ -11,6 +11,7 @@ import { createGmailMcpServer } from "../mcp/gmail.ts";
 import { logger } from "../logger.ts";
 import { createSheetsMcpServer } from "../mcp/sheets.ts";
 import { createMemoryMcpServer } from "../mcp/memory.ts";
+import { createKnowledgeMcpServer } from "../mcp/knowledge.ts";
 import { buildMemoryContext } from "../memory/extraction.ts";
 import type {
   AgentProvider,
@@ -194,8 +195,9 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
           }
         }
 
-        // Memory MCP server (Tier 2: active tools)
+        // Memory MCP server (Tier 2: active tools) + knowledge base / entity graph
         const memoryMcp = userId ? createMemoryMcpServer(userId) : null;
+        const knowledgeMcp = userId ? createKnowledgeMcpServer(userId) : null;
 
         const stream = query({
           prompt: enrichedPrompt,
@@ -215,6 +217,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
               ...(this.gmailMcp ? { gmail: this.gmailMcp } : {}),
               ...(this.sheetsMcp ? { sheets: this.sheetsMcp } : {}),
               ...(memoryMcp ? { memory: memoryMcp } : {}),
+              ...(knowledgeMcp ? { knowledge: knowledgeMcp } : {}),
             },
             allowedTools: [
               ...READONLY_TOOLS,
@@ -222,6 +225,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
               ...(this.gmailMcp ? ["mcp__gmail__*"] : []),
               ...(this.sheetsMcp ? ["mcp__sheets__*"] : []),
               ...(memoryMcp ? ["mcp__memory__*"] : []),
+              ...(knowledgeMcp ? ["mcp__knowledge__*"] : []),
             ],
             permissionMode: "bypassPermissions" as const,
             allowDangerouslySkipPermissions: true,

@@ -16,6 +16,9 @@ Bot AI Telegram cá nhân, sử dụng **Claude** (Agent SDK). Gửi tin nhắn 
 - **Streaming responses** — cập nhật tiến trình thời gian thực, hiển thị tool đang chạy, typing loop
 - **Session management** — tiếp tục hội thoại, timeout 72h
 - **Persistent Memory** — Tier 1 (passive extraction) + Tier 2 (active MCP tools)
+- **Semantic search** — tìm memory theo ý nghĩa (FTS5 + vector), tự liên kết fact liên quan
+- **Knowledge base** — lưu tài liệu dài, tự chia đoạn và đánh index ngữ nghĩa
+- **Entity graph** — tự trích người/project/công nghệ từ nội dung đã lưu, tìm liên hệ chéo
 - **Upload file & ảnh** — AI phân tích file/ảnh từ Telegram
 - **Gmail integration** — search, read, send, archive qua MCP
 - **Google Sheets integration** — read, write, append qua MCP
@@ -68,6 +71,10 @@ CLAUDE_MAX_TURNS=30
 
 # Hỏi xác nhận qua Telegram trước khi gửi/xóa email (mặc định bật)
 # GMAIL_REQUIRE_CONFIRM=0
+
+# Voyage AI — bật semantic search (tùy chọn; thiếu key thì lùi về tìm bằng từ khóa)
+VOYAGE_API_KEY=
+VOYAGE_MODEL=voyage-4-lite
 ```
 
 > **Bảo mật**: bot chạy agent với quyền shell trên máy chủ. Whitelist trống nghĩa là bất kỳ ai
@@ -173,10 +180,20 @@ skills/                   # Knowledge base (file .md, tự động load)
 **Tier 1 (Passive)** — Tự động extract facts sau mỗi hội thoại, inject vào prompt khi cần.
 
 **Tier 2 (Active)** — Claude dùng MCP tools để đọc/ghi:
-- `memory_save` — lưu fact mới
-- `memory_search` — tìm kiếm theo keyword (FTS5)
+- `memory_save` — lưu fact mới (tự embed + liên kết fact tương tự)
+- `memory_search` — tìm kiếm lai FTS5 + vector, trả kèm fact liên quan
 - `memory_list` — xem tất cả facts
 - `memory_delete` — xóa fact cũ/sai
+
+**Knowledge base** — cho nội dung dài hơn một câu:
+- `knowledge_save` — lưu tài liệu (tự chia đoạn, embed, trích entity)
+- `knowledge_search` — tìm trong tài liệu, trả về đúng đoạn khớp
+- `knowledge_list` / `knowledge_delete` — quản lý tài liệu
+- `entity_search` — tra knowledge graph (người, project, công nghệ, tổ chức)
+
+**Semantic search cần `VOYAGE_API_KEY`.** Không có key thì mọi thứ vẫn chạy, chỉ lùi về
+tìm kiếm bằng từ khóa (FTS5). Vector lưu dạng BLOB f32 little-endian, cùng định dạng với
+bản Rust `memory-assistant`.
 
 ## Cài đặt Gmail (Tùy chọn)
 

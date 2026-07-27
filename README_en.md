@@ -16,6 +16,9 @@ Personal Telegram AI bot powered by **Claude** (Agent SDK). Send messages via Te
 - **Streaming responses** — real-time progress, tool indicators, typing loop
 - **Session management** — resume conversation, 72h timeout
 - **Persistent Memory** — Tier 1 (passive extraction) + Tier 2 (active MCP tools)
+- **Semantic search** — find memories by meaning (FTS5 + vector), auto-links related facts
+- **Knowledge base** — store long documents, auto-chunked and semantically indexed
+- **Entity graph** — extracts people/projects/technologies from stored content, cross-references them
 - **File & photo upload** — AI analyzes files/images from Telegram
 - **Gmail integration** — search, read, send, archive via MCP
 - **Google Sheets integration** — read, write, append via MCP
@@ -68,6 +71,10 @@ CLAUDE_MAX_TURNS=30
 
 # Ask for Telegram confirmation before sending/trashing email (on by default)
 # GMAIL_REQUIRE_CONFIRM=0
+
+# Voyage AI — enables semantic search (optional; falls back to FTS5 keyword search)
+VOYAGE_API_KEY=
+VOYAGE_MODEL=voyage-4-lite
 ```
 
 > **Security**: the bot runs an agent with shell access on the host. An empty whitelist means
@@ -173,10 +180,20 @@ skills/                   # Knowledge base (.md files, auto-loaded)
 **Tier 1 (Passive)** — Automatically extracts facts after each conversation, injected into the prompt as needed.
 
 **Tier 2 (Active)** — Claude uses MCP tools to read/write:
-- `memory_save` — save a new fact
-- `memory_search` — keyword search (FTS5)
+- `memory_save` — save a new fact (auto-embeds and links similar facts)
+- `memory_search` — hybrid FTS5 + vector search, returns related facts alongside
 - `memory_list` — view all facts
 - `memory_delete` — delete outdated/incorrect facts
+
+**Knowledge base** — for content longer than a sentence:
+- `knowledge_save` — store a document (auto-chunked, embedded, entities extracted)
+- `knowledge_search` — search documents, returns the matching passage
+- `knowledge_list` / `knowledge_delete` — manage documents
+- `entity_search` — query the knowledge graph (people, projects, technologies, organizations)
+
+**Semantic search requires `VOYAGE_API_KEY`.** Without it everything still works, just
+falling back to keyword search (FTS5). Vectors are stored as little-endian f32 BLOBs,
+byte-compatible with the Rust `memory-assistant`.
 
 ## Gmail Setup (Optional)
 

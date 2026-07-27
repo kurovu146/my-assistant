@@ -9,7 +9,7 @@ import { tmpdir } from "os";
 import { splitMessage } from "../src/telegram/formatter.ts";
 import { parseModelOverride, resolveModelTier } from "../src/claude/router.ts";
 import { filterSensitiveContent } from "../src/telegram/content-filter.ts";
-import { saveFact, searchFacts, toFtsPhrase } from "../src/memory/repository.ts";
+import { saveFact, searchFacts, toFtsQuery } from "../src/memory/repository.ts";
 import { db } from "../src/db/connection.ts";
 import {
   bytesToEmbedding,
@@ -18,20 +18,34 @@ import {
   hybridScore,
 } from "../src/memory/embedding.ts";
 import { searchFactsHybrid } from "../src/memory/semantic.ts";
+import { chunkText } from "../src/memory/knowledge.ts";
+import { buildContextSnippet, parseEntities } from "../src/memory/entities.ts";
 
 // --- FTS5: keyword thô từng làm memory_search ném lỗi cú pháp ---
 
-test("toFtsPhrase làm keyword thô chạy được trên FTS5 MATCH", () => {
+test("toFtsQuery làm keyword thô chạy được trên FTS5 MATCH", () => {
   const runMatch = (keyword: string) =>
     db
       .query(`SELECT rowid FROM memory_facts_fts WHERE memory_facts_fts MATCH ? LIMIT 1`)
       .all(keyword);
 
   // Không escape thì đây là cú pháp FTS5 → SQLite ném lỗi
-  for (const keyword of ["email: tuan", "AND", "a-b", 'say "hi"']) {
-    expect(() => runMatch(toFtsPhrase(keyword))).not.toThrow();
+  for (const keyword of ["email: tuan", "AND", "a-b", 'say "hi"', "tại sao không dùng Node"]) {
+    expect(() => runMatch(toFtsQuery(keyword))).not.toThrow();
   }
-  expect(toFtsPhrase('say "hi"')).toBe('"say ""hi"""');
+
+  // Mỗi token là một phrase riêng, nối OR — nếu gộp cả câu thành một cụm thì
+  // câu hỏi dài sẽ không khớp gì và FTS đóng góp 0 vào điểm hybrid.
+  expect(toFtsQuery("dùng Bun")).toBe('"dùng" OR "Bun"');
+  expect(toFtsQuery('say "hi"')).toBe('"say" OR """hi"""');
+  expect(toFtsQuery("Godot")).toBe('"Godot"');
+});
+
+test("searchFacts khớp được câu hỏi nhiều từ nhờ OR token", () => {
+  saveFact(3, "Anh dùng Bun thay cho Node.js", "preference");
+
+  // Không có fact nào chứa nguyên cụm này, nhưng token "Bun" thì có
+  expect(searchFacts(3, "tại sao anh chọn Bun").length).toBeGreaterThan(0);
 });
 
 test("searchFacts vẫn tìm được fact với keyword thường", () => {
@@ -98,6 +112,59 @@ test("searchFactsHybrid rơi về FTS khi không có VOYAGE_API_KEY", async () =
   expect(hits.length).toBeGreaterThan(0);
   expect(hits[0]!.fact.fact).toContain("Bun");
   expect(hits[0]!.related).toEqual([]); // chưa embed thì không có liên kết
+});
+
+// --- Knowledge base: chunking ---
+
+test("chunkText cắt theo đoạn văn, không cắt giữa đoạn", () => {
+  const para = (n: number) => `Đoạn ${n}. `.repeat(30).trim(); // ~300 ký tự
+  const doc = [para(1), para(2), para(3), para(4), para(5)].join("\n\n");
+
+  const chunks = chunkText(doc, 700);
+
+  expect(chunks.length).toBeGreaterThan(1);
+  // Không đoạn nào bị xé đôi: mỗi đoạn gốc nằm trọn trong đúng một chunk
+  for (let i = 1; i <= 5; i++) {
+    expect(chunks.filter((c) => c.includes(`Đoạn ${i}.`)).length).toBe(1);
+  }
+  // Ghép lại đủ nội dung
+  expect(chunks.join("\n\n").replace(/\s+/g, " ")).toBe(doc.replace(/\s+/g, " "));
+});
+
+test("chunkText xử lý input rỗng và đoạn dài hơn giới hạn", () => {
+  expect(chunkText("")).toEqual([]);
+  expect(chunkText("   \n\n   ")).toEqual([]);
+
+  const huge = "x".repeat(3000);
+  expect(chunkText(huge, 1000)).toEqual([huge]); // không xé giữa câu
+});
+
+// --- Entity extraction: parse output của model ---
+
+test("parseEntities lọc bỏ phần tử sai định dạng", () => {
+  const good = '[{"name": "Bun", "type": "technology"}, {"name": "BasoTien", "type": "project"}]';
+  expect(parseEntities(good)).toEqual([
+    { name: "Bun", type: "technology" },
+    { name: "BasoTien", type: "project" },
+  ]);
+
+  // model hay chèn chữ quanh JSON
+  expect(parseEntities(`Đây là kết quả:\n${good}\nHết.`).length).toBe(2);
+
+  expect(parseEntities('[{"name": "X", "type": "khong_hop_le"}]')).toEqual([]);
+  expect(parseEntities('[{"name": "", "type": "person"}]')).toEqual([]);
+  expect(parseEntities("không phải JSON")).toEqual([]);
+  expect(parseEntities("[]")).toEqual([]);
+});
+
+test("buildContextSnippet lấy đoạn quanh entity", () => {
+  const text = "Anh Tuấn đang xây dựng project BasoTien bằng Go và Godot Engine cho vui.";
+
+  const snippet = buildContextSnippet(text, "BasoTien");
+  expect(snippet).toContain("BasoTien");
+  expect(snippet.length).toBeLessThanOrEqual(105);
+
+  expect(buildContextSnippet(text, "KhôngCóTrongVănBản")).toBe("");
 });
 
 // --- Telegram 4096 char limit ---
