@@ -188,16 +188,46 @@ export async function buildSystemPrompt(): Promise<string> {
     logger.warn("⚠️ Không tìm thấy CLAUDE.md");
   }
 
-  const skills = await loadSkills();
+  // Lazy-load: chỉ nhét INDEX skill vào system prompt (~100 chars/skill), agent tự
+  // đọc file đầy đủ bằng Read tool khi thật sự cần. Nạp full 12 skill tốn ~5-6k token
+  // MỖI LƯỢT dù phần lớn lượt chỉ dùng 1-2 skill.
+  // Đặt SKILLS_EAGER=1 để quay lại hành vi cũ (nạp hết) nếu cần so sánh.
+  const eager = process.env.SKILLS_EAGER === "1";
+  const skills = eager ? await loadSkills() : await buildSkillIndex();
 
   const fullPrompt = (basePrompt.trim() + skills).trim();
 
   if (fullPrompt) {
-    cachedSkillCount = skills ? skills.split("<!-- skill:").length - 1 : 0;
-    logger.log(`📚 System prompt loaded (${cachedSkillCount} skills)`);
+    cachedSkillCount = eager
+      ? (skills ? skills.split("<!-- skill:").length - 1 : 0)
+      : (skills.match(/^- `/gm)?.length ?? 0);
+    logger.log(
+      `📚 System prompt loaded (${cachedSkillCount} skills, ${eager ? "eager" : "lazy"}, ${skills.length} chars)`,
+    );
   }
 
   return fullPrompt;
+}
+
+/**
+ * Bảng mục lục skill — tên + mô tả ngắn + đường dẫn tuyệt đối để agent tự đọc.
+ * Rẻ hơn loadSkills() khoảng 10 lần về token.
+ */
+async function buildSkillIndex(): Promise<string> {
+  const summaries = await listSkillSummaries();
+  if (summaries.length === 0) return "";
+
+  const rows = summaries
+    .map((s) => `- \`${s.name}\` — ${s.description || s.title}`)
+    .join("\n");
+
+  return `\n\n---\n## Skills chuyên môn (đọc khi cần)
+
+Mỗi skill là một file hướng dẫn chi tiết. Bảng dưới chỉ là MỤC LỤC — khi gặp việc thuộc
+lĩnh vực nào, hãy đọc file tương ứng bằng Read tool tại \`${SKILLS_DIR}/<tên>.md\` rồi làm theo.
+Đừng đoán nội dung skill từ mô tả ngắn.
+
+${rows}`;
 }
 
 // --- Hot-reload watcher ---
