@@ -382,7 +382,12 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
         model: model || "claude-haiku-4-5",
         ...(systemPrompt ? { systemPrompt } : {}),
         maxTurns: maxTurns ?? 1,
-        allowedTools: [],
+        // `allowedTools: []` từng được dùng ở đây nhưng KHÔNG hạn chế gì — nó chỉ là
+        // danh sách auto-approve. Model vẫn có đủ 29 tool (Bash, Write, Task...) và khi
+        // nó chọn gọi tool ở lượt đầu thì maxTurns=1 chạm trần ngay, extraction hỏng.
+        // `tools: []` mới thực sự tắt built-in; strictMcpConfig chặn nốt MCP của máy.
+        tools: [],
+        strictMcpConfig: true,
         permissionMode: "bypassPermissions",
       },
     });

@@ -28,6 +28,23 @@ Ví dụ output:
 ]`;
 
 /**
+ * Bọc hội thoại trong thẻ và đặt mệnh lệnh sau cùng.
+ *
+ * Đưa hội thoại thô vào prompt khiến model coi đó là lượt chat gửi cho nó: gặp câu
+ * "đọc file X giúp anh" nó đi trả lời câu đó thay vì trích xuất fact. Ranh giới rõ
+ * ràng giữa dữ liệu và mệnh lệnh mới giữ model đúng vai.
+ */
+export function buildExtractionPrompt(userMessage: string, assistantResponse: string): string {
+  const user = userMessage.slice(0, 500);
+  const assistant = assistantResponse.slice(0, 1000);
+
+  return (
+    `<hội_thoại>\nUser: ${user}\n\nAssistant: ${assistant}\n</hội_thoại>\n\n` +
+    `Trích xuất facts đáng nhớ từ hội thoại trên. Chỉ trả JSON array, không giải thích.`
+  );
+}
+
+/**
  * Trích xuất facts từ cuộc hội thoại.
  * Chạy async sau khi response đã gửi cho user (không block).
  */
@@ -40,14 +57,8 @@ export async function extractFacts(
     // Skip nếu message quá ngắn (chào hỏi, ok, ...)
     if (userMessage.length < 20 && assistantResponse.length < 100) return;
 
-    // Truncate để tiết kiệm tokens
-    const truncatedUser = userMessage.slice(0, 500);
-    const truncatedAssistant = assistantResponse.slice(0, 1000);
-
-    const conversationContext = `User: ${truncatedUser}\n\nAssistant: ${truncatedAssistant}`;
-
     const resultText = await getClaudeProvider().complete({
-      prompt: conversationContext,
+      prompt: buildExtractionPrompt(userMessage, assistantResponse),
       systemPrompt: EXTRACT_PROMPT,
     });
 

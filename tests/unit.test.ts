@@ -20,6 +20,7 @@ import {
 } from "../src/memory/embedding.ts";
 import { searchFactsHybrid } from "../src/memory/semantic.ts";
 import { chunkText } from "../src/memory/knowledge.ts";
+import { buildExtractionPrompt } from "../src/memory/extraction.ts";
 import { buildContextSnippet, parseEntities } from "../src/memory/entities.ts";
 
 // --- FTS5: keyword thô từng làm memory_search ném lỗi cú pháp ---
@@ -330,6 +331,56 @@ test("filterSensitiveContent che token và giữ nguyên text thường", () => 
   expect(result.redactedCount).toBe(1);
 
   expect(filterSensitiveContent("chỉ là câu bình thường").redactedCount).toBe(0);
+});
+
+// --- Prompt extraction phải tách bạch dữ liệu và mệnh lệnh ---
+
+test("buildExtractionPrompt bọc hội thoại và đặt yêu cầu sau cùng", () => {
+  const prompt = buildExtractionPrompt(
+    "đọc file src/db/queries.ts rồi chạy bun test giúp anh",
+    "Em đã chạy xong.",
+  );
+
+  // Không bọc thì model coi hội thoại là mệnh lệnh gửi cho nó và trả lời thay vì trích xuất
+  expect(prompt).toContain("<hội_thoại>");
+  expect(prompt).toContain("</hội_thoại>");
+
+  // Mệnh lệnh phải nằm SAU khối dữ liệu
+  expect(prompt.indexOf("</hội_thoại>")).toBeLessThan(prompt.indexOf("Chỉ trả JSON"));
+});
+
+test("buildExtractionPrompt cắt bớt nội dung quá dài", () => {
+  const prompt = buildExtractionPrompt("u".repeat(2000), "a".repeat(3000));
+
+  expect(prompt).toContain("u".repeat(500));
+  expect(prompt).not.toContain("u".repeat(501));
+  expect(prompt).toContain("a".repeat(1000));
+  expect(prompt).not.toContain("a".repeat(1001));
+});
+
+// --- complete() phải chạy không tool ---
+// Đặt trước phần consolidation: bên dưới mock.module("../src/claude/provider.ts")
+// nên mọi test cần provider thật phải nằm trên.
+
+test("complete() không cấp tool nào cho model", async () => {
+  let captured: Record<string, unknown> | undefined;
+  mock.module("@anthropic-ai/claude-agent-sdk", () => ({
+    query: ({ options }: { options: Record<string, unknown> }) => {
+      captured = options;
+      return (async function* () {
+        yield { type: "assistant", message: { content: [{ type: "text", text: "[]" }] } };
+      })();
+    },
+  }));
+
+  const { ClaudeProvider } = await import("../src/claude/provider.ts");
+  await new ClaudeProvider().complete({ prompt: "x", systemPrompt: "y" });
+
+  // allowedTools chỉ là danh sách auto-approve — KHÔNG hạn chế gì.
+  // Muốn model không có tool thì phải dùng `tools: []`, kèm chặn MCP từ config máy.
+  expect(captured?.tools).toEqual([]);
+  expect(captured?.strictMcpConfig).toBe(true);
+  expect(captured?.maxTurns).toBe(1);
 });
 
 // --- Consolidation phải embed fact vừa gộp ---
