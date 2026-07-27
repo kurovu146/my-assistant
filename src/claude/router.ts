@@ -16,9 +16,9 @@ const TIER_ALIASES: Record<string, ModelTier> = {
 };
 
 const CLAUDE_TIERS: Record<ModelTier, string> = {
-  fast: "claude-haiku-4-5-20251001",
-  balanced: "claude-sonnet-4-6",
-  powerful: "claude-opus-4-6",
+  fast: "claude-haiku-4-5",
+  balanced: "claude-sonnet-5",
+  powerful: "claude-opus-5",
 };
 
 /** Resolve tier name → actual Claude model ID */

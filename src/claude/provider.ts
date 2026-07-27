@@ -56,8 +56,8 @@ const BASE_DELAY_MS = 2000;
 const MAX_DELAY_MS = 30_000;
 
 const FAILOVER_CHAIN: Record<string, string> = {
-  "claude-opus-4-6": "claude-sonnet-4-6",
-  "claude-sonnet-4-6": "claude-haiku-4-5-20251001",
+  "claude-opus-5": "claude-sonnet-5",
+  "claude-sonnet-5": "claude-haiku-4-5",
 };
 
 function getFailoverModel(currentModel: string): string | null {
@@ -375,7 +375,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
     const stream = query({
       prompt,
       options: {
-        model: model || "claude-haiku-4-5-20251001",
+        model: model || "claude-haiku-4-5",
         ...(systemPrompt ? { systemPrompt } : {}),
         maxTurns: maxTurns ?? 1,
         allowedTools: [],

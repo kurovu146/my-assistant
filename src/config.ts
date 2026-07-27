@@ -70,7 +70,7 @@ export const config = {
   authMode: process.env.ANTHROPIC_API_KEY
     ? ("api-key" as const)
     : ("subscription" as const),
-  claudeModel: process.env.CLAUDE_MODEL || "claude-opus-4-6",
+  claudeModel: process.env.CLAUDE_MODEL || "claude-opus-5",
   claudeWorkingDir: expandHome(process.env.CLAUDE_WORKING_DIR || process.cwd()),
   // Agent tuning — 30 turns đủ cho task phức tạp (research, multi-file)
   maxTurns: envInt("CLAUDE_MAX_TURNS", 30),

@@ -47,7 +47,7 @@ Get your API key at [console.anthropic.com](https://console.anthropic.com/settin
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-xxx
-CLAUDE_MODEL=claude-sonnet-4-6
+CLAUDE_MODEL=claude-opus-5
 ```
 
 ### Config
@@ -87,8 +87,8 @@ use powerful analyze architecture
 | Tier | Model |
 |------|-------|
 | `fast` | Haiku 4.5 |
-| `balanced` | Sonnet 4.6 |
-| `powerful` | Opus 4.6 |
+| `balanced` | Sonnet 5 |
+| `powerful` | Opus 5 |
 
 ### Planning (Optional)
 
@@ -105,7 +105,11 @@ touch PLAN.md
 
 ```bash
 # Development
-bun run src/index.ts
+bun run dev          # bun --watch run src/index.ts
+
+# Check before deploying
+bun run typecheck
+bun test
 
 # Production (PM2)
 pm2 start ecosystem.config.cjs
@@ -225,7 +229,7 @@ bun install
 env: {
   TELEGRAM_BOT_TOKEN: "your-second-bot-token",
   TELEGRAM_ALLOWED_USERS: "user_id_1,user_id_2",
-  CLAUDE_MODEL: "claude-sonnet-4-6",
+  CLAUDE_MODEL: "claude-sonnet-5",
   CLAUDE_WORKING_DIR: "/home/user/SecondBot",
   CLAUDE_CONFIG_DIR: "/home/user/.claude-bot2",
 }

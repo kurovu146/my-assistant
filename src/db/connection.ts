@@ -20,7 +20,7 @@ db.run(`
   CREATE TABLE IF NOT EXISTS sessions (
     user_id INTEGER NOT NULL,
     session_id TEXT NOT NULL,
-    model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
+    model TEXT NOT NULL DEFAULT 'claude-opus-5',
     created_at INTEGER NOT NULL,
     last_active_at INTEGER NOT NULL,
     title TEXT NOT NULL DEFAULT 'Phiên mới',

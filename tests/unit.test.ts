@@ -78,7 +78,7 @@ test("parseModelOverride tách tier và phần còn lại", () => {
   });
   expect(parseModelOverride("use fast tóm tắt file")?.tier).toBe("fast");
   expect(parseModelOverride("dùng bừa cái gì đó")).toBeNull();
-  expect(resolveModelTier("balanced")).toBe("claude-sonnet-4-6");
+  expect(resolveModelTier("balanced")).toBe("claude-sonnet-5");
 });
 
 // --- Redact secrets trước khi gửi Telegram ---
