@@ -26,7 +26,7 @@ Personal Telegram AI bot powered by **Claude** (Agent SDK). Send messages via Te
 - **News Digest** — daily news summary (HN + GitHub trending, 8am Vietnam time)
 - **Skills system** — auto-load `.md` files, hot-reload on change
 - **Content filter** — automatically hide secrets/credentials in responses
-- **No turn limit** — long tasks run to completion (safeguards: 2h timeout and `/stop`)
+- **No turn or time limit** — long tasks run to completion; only `/stop` interrupts them
 - **Model override** — switch model tier at runtime (`use opus`, `use fast`...)
 - `/stop` — abort a running query
 

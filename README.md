@@ -26,7 +26,7 @@ Bot AI Telegram cá nhân, sử dụng **Claude** (Agent SDK). Gửi tin nhắn 
 - **News Digest** — tóm tắt tin tức hàng ngày (HN + GitHub trending, 8h sáng VN)
 - **Skills system** — tự động load file `.md`, hot-reload khi thay đổi
 - **Content filter** — tự động ẩn secrets/credentials trong response
-- **Không giới hạn số turn** — task dài chạy trọn, không bị cắt giữa chừng (phanh: timeout 2h và `/stop`)
+- **Không giới hạn turn/thời gian** — task dài chạy tới khi xong, chỉ `/stop` mới dừng được
 - **Model override** — đổi model tier runtime (`dung opus`, `use fast`...)
 - `/stop` — dừng query đang chạy
 

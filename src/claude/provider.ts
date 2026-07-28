@@ -230,18 +230,20 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
             permissionMode: "bypassPermissions" as const,
             allowDangerouslySkipPermissions: true,
             hooks: auditBashHook,
-            // Không đặt maxTurns: task dài bao nhiêu lượt cũng chạy trọn, không bị cắt
-            // giữa chừng. Phanh còn lại là abortController bên dưới (2 giờ) và /stop.
+            // Không giới hạn số turn lẫn thời gian: task chạy tới khi xong.
+            // Phanh duy nhất là /stop của user (abortSignal bên dưới).
             ...(sessionId ? { resume: sessionId } : {}),
-            abortController: (() => {
-              const controller = new AbortController();
-              const timeoutSignal = AbortSignal.timeout(2 * 60 * 60 * 1000);
-              const combinedSignal = abortSignal
-                ? AbortSignal.any([abortSignal, timeoutSignal])
-                : timeoutSignal;
-              combinedSignal.addEventListener("abort", () => controller.abort(combinedSignal.reason), { once: true });
-              return controller;
-            })(),
+            ...(abortSignal
+              ? {
+                  abortController: (() => {
+                    const controller = new AbortController();
+                    abortSignal.addEventListener("abort", () => controller.abort(abortSignal.reason), {
+                      once: true,
+                    });
+                    return controller;
+                  })(),
+                }
+              : {}),
           },
         });
 
@@ -292,19 +294,13 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
           model: activeModel || config.claudeModel,
         };
       } catch (error) {
-        // Handle abort gracefully
-        const isAborted = abortSignal?.aborted;
-        const isTimeout = error instanceof DOMException && error.name === "TimeoutError";
-        if (isAborted || isTimeout) {
+        // Query chỉ dừng giữa chừng khi user gõ /stop — không còn timeout nào
+        if (abortSignal?.aborted) {
           const partial = textParts.join("").trim();
-          const reason = isTimeout
-            ? "⏱ Query bị timeout (quá 2 giờ)."
-            : "⏹ Query đã bị dừng.";
           return {
-            text: partial || reason,
+            text: partial || "⏹ Query đã bị dừng.",
             sessionId: resolvedSessionId,
             toolsUsed: [...new Set(toolsUsed)],
-            ...(isTimeout ? { error: reason } : {}),
           };
         }
 
