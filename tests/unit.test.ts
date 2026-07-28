@@ -184,28 +184,40 @@ test("formatProjectList hướng dẫn khi chưa có project nào", () => {
   expect(formatProjectList([], "")).toContain("/p ");
 });
 
-test("formatProjectList đánh dấu ⚠️ khi thư mục project không còn tồn tại trên đĩa", () => {
-  // Mô phỏng đúng finding từ review Task 5: project đã đăng ký nhưng thư mục
-  // riêng bị xoá sau đó — nếu /p không cảnh báo ở đây, anh sẽ không biết cho
-  // tới khi thấy agent âm thầm chạy nhầm trong thư mục gốc.
+test("formatProjectList đánh dấu ⚠️ đúng cho cả 2 dạng project không có thư mục riêng", () => {
+  // Finding review Task 6: có 2 đường dẫn tới "agent đang chạy nhầm thư mục gốc",
+  // check kiểu cũ (projectDirExists(p.path)) chỉ bắt được 1:
+  //   1. Project TỪNG có thư mục riêng, path lưu trong DB là đường dẫn thật, rồi
+  //      thư mục đó bị xoá sau → bắt được cả 2 cách check (path cũ trỏ vào chỗ
+  //      không còn tồn tại).
+  //   2. Project được tạo TRƯỚC KHI thư mục riêng từng tồn tại → ensureProject
+  //      lưu path = baseDir (fallback) → check theo path cũ luôn thấy "tồn tại"
+  //      vì baseDir luôn có thật, dù project chưa từng có thư mục riêng. Đây là
+  //      case bị lọt lưới, phải phân giải lại từ TÊN (resolveProjectPath) mới bắt được.
   const base = mkdtempSync(join(tmpdir(), "myasst-fmtlist-"));
   const conPath = join(base, "con-thu-muc");
   mkdirSync(conPath);
-  const mistPath = join(base, "da-bi-xoa");
+  const mistPath = join(base, "da-bi-xoa"); // không bao giờ mkdirSync — mô phỏng "đã xoá"
 
   try {
     const out = formatProjectList(
       [
         { name: "con-thu-muc", path: conPath, createdAt: 0, lastUsedAt: Date.now(), sessionCount: 1 },
+        // path = base — đúng giá trị fallback mà ensureProject lưu khi tạo project
+        // lúc thư mục riêng CHƯA TỪNG tồn tại (case bị lọt lưới)
+        { name: "chua-tung-co-rieng", path: base, createdAt: 0, lastUsedAt: Date.now(), sessionCount: 0 },
         { name: "da-bi-xoa", path: mistPath, createdAt: 0, lastUsedAt: Date.now(), sessionCount: 2 },
       ],
       "",
+      base,
     );
 
     const lines = out.split("\n");
     const okLine = lines.find((l) => l.includes("con-thu-muc"));
+    const neverHadDirLine = lines.find((l) => l.includes("chua-tung-co-rieng"));
     const missingLine = lines.find((l) => l.includes("da-bi-xoa"));
     expect(okLine).not.toContain("⚠️");
+    expect(neverHadDirLine).toContain("⚠️");
     expect(missingLine).toContain("⚠️");
   } finally {
     rmSync(base, { recursive: true, force: true });

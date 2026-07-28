@@ -9,7 +9,6 @@ import {
   ensureProject,
   getCurrentProject,
   listProjects,
-  projectDirExists,
   resolveProjectPath,
   setCurrentProject,
   type Project,
@@ -135,6 +134,9 @@ export async function handleResumeCallback(ctx: Context): Promise<void> {
 export function formatProjectList(
   projects: (Project & { sessionCount: number })[],
   current: string,
+  // Tham số tuỳ chọn cho test hermetic (trỏ vào thư mục tạm) — mặc định dùng
+  // đúng baseDir thật mà agent chạy.
+  baseDir: string = config.claudeWorkingDir,
 ): string {
   if (projects.length === 0) {
     return "📁 Chưa có project nào.\n\nGõ `/p <tên>` để tạo, ví dụ: `/p my-assistant`";
@@ -142,9 +144,12 @@ export function formatProjectList(
 
   const lines = projects.map((p) => {
     const mark = p.name === current ? "▸" : " ";
-    // Thư mục có thể đã bị xoá sau khi project được đăng ký — nếu không cảnh báo
-    // ngay ở đây, anh sẽ không biết cho tới khi thấy agent chạy nhầm ở thư mục gốc.
-    const warn = projectDirExists(p.path) ? "" : " ⚠️";
+    // Không được check theo `p.path` đã lưu trong registry: khi project được tạo
+    // TRƯỚC KHI thư mục riêng từng tồn tại, ensureProject lưu path = baseDir (giá
+    // trị fallback) — baseDir luôn có thật nên check kiểu đó luôn ra "còn tồn tại"
+    // dù project chưa từng có thư mục riêng. Phân giải lại từ TÊN + baseDir hiện
+    // tại thì đúng cho cả 2 trường hợp: chưa từng có thư mục, và có rồi bị xoá.
+    const warn = resolveProjectPath(p.name, baseDir).exists ? "" : " ⚠️";
     return `${mark} ${p.name} — ${p.sessionCount} phiên · ${timeAgo(p.lastUsedAt)}${warn}`;
   });
   return `📁 Project đang có:\n${lines.join("\n")}`;
