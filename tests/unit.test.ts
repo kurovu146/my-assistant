@@ -14,7 +14,7 @@ import { saveFact, searchFacts, toFtsQuery } from "../src/memory/repository.ts";
 import { getUsageByPeriod, logQuery, type QueryLogEntry } from "../src/db/queries.ts";
 import { db } from "../src/db/connection.ts";
 import { config } from "../src/config.ts";
-import { normalizeProjectName, resolveProjectPath } from "../src/db/projects.ts";
+import { normalizeProjectName, resolveProjectPath, ensureProject, listProjects, getCurrentProject, setCurrentProject } from "../src/db/projects.ts";
 import {
   bytesToEmbedding,
   cosineSimilarity,
@@ -89,6 +89,40 @@ test("resolveProjectPath phân giải theo baseDir tuỳ chỉnh — hermetic, k
 test("resolveProjectPath mặc định dùng config.claudeWorkingDir khi không truyền baseDir", () => {
   const missing = resolveProjectPath("khong-ton-tai-mac-dinh-xyz");
   expect(missing).toEqual({ path: config.claudeWorkingDir, exists: false });
+});
+
+// --- Project registry CRUD ---
+
+test("ensureProject tạo mới rồi tái sử dụng", () => {
+  const first = ensureProject("du-an-thu-nghiem");
+  expect(first).not.toBeNull();
+  expect(first!.created).toBe(true);
+  expect(first!.project.name).toBe("du-an-thu-nghiem");
+
+  const second = ensureProject("Du-An-Thu-Nghiem"); // khác hoa thường
+  expect(second!.created).toBe(false); // đã chuẩn hoá nên là cùng một project
+
+  expect(ensureProject("../thoat-ra")).toBeNull();
+});
+
+test("getCurrentProject trả chuỗi rỗng khi user chưa chọn project", () => {
+  expect(getCurrentProject(901)).toBe("");
+
+  ensureProject("alpha");
+  setCurrentProject(901, "alpha");
+  expect(getCurrentProject(901)).toBe("alpha");
+});
+
+test("listProjects đếm số phiên của từng project", () => {
+  ensureProject("proj-a");
+  db.run(
+    `INSERT OR REPLACE INTO sessions (user_id, session_id, model, created_at, last_active_at, title, project)
+     VALUES (?, ?, 'claude-opus-5', ?, ?, 'x', ?)`,
+    [902, "s1", Date.now(), Date.now(), "proj-a"],
+  );
+
+  const found = listProjects().find((p) => p.name === "proj-a");
+  expect(found?.sessionCount).toBe(1);
 });
 
 // --- Multi-project: schema migration ---

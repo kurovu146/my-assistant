@@ -6,6 +6,7 @@
 import { statSync } from "fs";
 import { join } from "path";
 import { config } from "../config.ts";
+import { db } from "./connection.ts";
 
 const NAME_PATTERN = /^[a-z0-9._-]{1,64}$/;
 
@@ -51,4 +52,76 @@ export function resolveProjectPath(
     // Không tồn tại hoặc không có quyền đọc — coi như chưa có project.
     return { path: baseDir, exists: false };
   }
+}
+
+// --- Project registry CRUD ---
+
+export interface Project {
+  name: string;
+  path: string;
+  createdAt: number;
+  lastUsedAt: number;
+}
+
+/** Tạo project nếu chưa có. Trả null khi tên không hợp lệ. */
+export function ensureProject(rawName: string): { project: Project; created: boolean } | null {
+  const name = normalizeProjectName(rawName);
+  if (!name) return null;
+
+  const now = Date.now();
+  const existing = db.query(`SELECT * FROM projects WHERE name = ?`).get(name) as any;
+
+  if (existing) {
+    db.run(`UPDATE projects SET last_used_at = ? WHERE name = ?`, [now, name]);
+    return {
+      project: { name, path: existing.path, createdAt: existing.created_at, lastUsedAt: now },
+      created: false,
+    };
+  }
+
+  const { path } = resolveProjectPath(name);
+  db.run(`INSERT INTO projects (name, path, created_at, last_used_at) VALUES (?, ?, ?, ?)`, [
+    name,
+    path,
+    now,
+    now,
+  ]);
+  return { project: { name, path, createdAt: now, lastUsedAt: now }, created: true };
+}
+
+export function listProjects(): (Project & { sessionCount: number })[] {
+  const rows = db
+    .query(
+      `SELECT p.*, (SELECT COUNT(*) FROM sessions s WHERE s.project = p.name) AS session_count
+       FROM projects p ORDER BY p.last_used_at DESC`,
+    )
+    .all() as any[];
+
+  return rows.map((r) => ({
+    name: r.name,
+    path: r.path,
+    createdAt: r.created_at,
+    lastUsedAt: r.last_used_at,
+    sessionCount: r.session_count,
+  }));
+}
+
+/** Chuỗi rỗng nghĩa là chưa chọn project — dùng thư mục gốc như trước đây. */
+export function getCurrentProject(userId: number): string {
+  const row = db.query(`SELECT project FROM current_project WHERE user_id = ?`).get(userId) as
+    | { project: string }
+    | undefined;
+  if (!row) return "";
+
+  // Project bị xoá khỏi bảng projects mà con trỏ còn sót → coi như chưa chọn
+  const exists = db.query(`SELECT 1 FROM projects WHERE name = ?`).get(row.project);
+  return exists ? row.project : "";
+}
+
+export function setCurrentProject(userId: number, name: string): void {
+  db.run(
+    `INSERT INTO current_project (user_id, project) VALUES (?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET project = excluded.project`,
+    [userId, name],
+  );
 }
