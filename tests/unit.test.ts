@@ -24,10 +24,10 @@ import {
 import { getUsageByPeriod, logQuery, type QueryLogEntry } from "../src/db/queries.ts";
 import { db } from "../src/db/connection.ts";
 import { config } from "../src/config.ts";
-import { normalizeProjectName, resolveProjectPath, ensureProject, listProjects, getCurrentProject, setCurrentProject } from "../src/db/projects.ts";
+import { normalizeProjectName, resolveProjectPath, ensureProject, listProjects, getCurrentProject, setCurrentProject, getProjectCwd } from "../src/db/projects.ts";
 import { getActiveSession, createSession, clearActiveSession, getRecentSessions } from "../src/db/sessions.ts";
 import { formatProjectList, formatSkillList } from "../src/telegram/commands.ts";
-import { buildUploadPrompt, uploadPath } from "../src/telegram/bot.ts";
+import { buildUploadPrompt, resolveQueryCwd, uploadPath } from "../src/telegram/bot.ts";
 import {
   bytesToEmbedding,
   cosineSimilarity,
@@ -134,9 +134,11 @@ test("getCurrentProject trả chuỗi rỗng khi con trỏ mồ côi (project kh
   expect(getCurrentProject(904)).toBe("");
 });
 
-test("ensureProject phân giải lại path khi thư mục dự án xuất hiện sau lúc đăng ký", () => {
-  // Hermetic — dùng baseDir tuỳ chỉnh (mkdtempSync) thay vì phụ thuộc ~/dev thật,
-  // theo đúng cách resolveProjectPath đã làm ở test phía trên.
+test("ensureProject KHÔNG đổi path khi thư mục dự án xuất hiện sau lúc đăng ký", () => {
+  // Claude Agent SDK lưu transcript theo cwd. cwd đổi giữa chừng ⇒ resume ném
+  // "No conversation found" ⇒ phiên chết vĩnh viễn. Nên `path` — nguồn sự thật cho
+  // cwd — phải chốt từ lúc tạo, kể cả khi thư mục riêng xuất hiện sau.
+  // Hermetic: baseDir tuỳ chỉnh (mkdtempSync), không phụ thuộc ~/dev thật.
   const root = mkdtempSync(join(tmpdir(), "ensure-project-"));
   const base = join(root, "base");
   mkdirSync(base);
@@ -146,17 +148,40 @@ test("ensureProject phân giải lại path khi thư mục dự án xuất hiệ
     const first = ensureProject("thu-muc-tre", base);
     expect(first!.project.path).toBe(base);
 
-    // Thư mục xuất hiện sau khi đã đăng ký — ensureProject lần sau phải phân
-    // giải lại, không giữ nguyên path cũ (nếu không /p sẽ hiển thị đường dẫn cũ
-    // trong khi lời gọi resolveProjectPath riêng lại thấy thư mục tồn tại)
+    // Thư mục xuất hiện sau (agent tự mkdir được — nó có Bash): path phải đứng yên
     mkdirSync(join(base, "thu-muc-tre"));
     const second = ensureProject("thu-muc-tre", base);
     expect(second!.created).toBe(false);
-    expect(second!.project.path).toBe(join(base, "thu-muc-tre"));
+    expect(second!.project.path).toBe(base);
 
-    // DB phải được cập nhật thật, không chỉ object trả về trong bộ nhớ
-    const stored = listProjects().find((p) => p.name === "thu-muc-tre");
-    expect(stored?.path).toBe(join(base, "thu-muc-tre"));
+    // DB cũng không được đổi — getProjectCwd đọc thẳng cột này để làm cwd
+    expect(listProjects().find((p) => p.name === "thu-muc-tre")?.path).toBe(base);
+    expect(getProjectCwd("thu-muc-tre")).toBe(base);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("getProjectCwd trả null cho project không có trong registry", () => {
+  // null → bot truyền cwd undefined → provider lùi về config.claudeWorkingDir
+  expect(getProjectCwd("khong-he-ton-tai-xyz")).toBeNull();
+});
+
+test("cwd của query lấy từ path đã chốt, không phân giải lại theo thư mục trên đĩa", () => {
+  const root = mkdtempSync(join(tmpdir(), "query-cwd-"));
+  const base = join(root, "base");
+  mkdirSync(base);
+
+  try {
+    ensureProject("cwd-dong-bang", base); // chốt path = base vì chưa có thư mục riêng
+    mkdirSync(join(base, "cwd-dong-bang")); // agent tự mkdir sau đó (nó có Bash)
+
+    // Phân giải lại theo tên sẽ ra base/cwd-dong-bang → cwd đổi → resume chết
+    expect(resolveProjectPath("cwd-dong-bang", base).path).toBe(join(base, "cwd-dong-bang"));
+    expect(resolveQueryCwd("cwd-dong-bang")).toBe(base);
+
+    expect(resolveQueryCwd("")).toBeUndefined(); // chưa chọn project → thư mục gốc
+    expect(resolveQueryCwd("khong-ton-tai-abc")).toBeUndefined();
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -205,10 +230,14 @@ test("formatProjectList đánh dấu ⚠️ đúng cho cả 2 dạng project kh�
   //      lưu path = baseDir (fallback) → check theo path cũ luôn thấy "tồn tại"
   //      vì baseDir luôn có thật, dù project chưa từng có thư mục riêng. Đây là
   //      case bị lọt lưới, phải phân giải lại từ TÊN (resolveProjectPath) mới bắt được.
+  //   3. Thư mục riêng XUẤT HIỆN sau khi project đã chốt path = baseDir → cwd vẫn
+  //      là thư mục gốc (cố ý, đổi cwd giết phiên) nên vẫn phải cảnh báo, dù
+  //      resolveProjectPath giờ thấy thư mục tồn tại.
   const base = mkdtempSync(join(tmpdir(), "myasst-fmtlist-"));
   const conPath = join(base, "con-thu-muc");
   mkdirSync(conPath);
   const mistPath = join(base, "da-bi-xoa"); // không bao giờ mkdirSync — mô phỏng "đã xoá"
+  mkdirSync(join(base, "co-thu-muc-nhung-chot-goc"));
 
   try {
     const out = formatProjectList(
@@ -218,18 +247,21 @@ test("formatProjectList đánh dấu ⚠️ đúng cho cả 2 dạng project kh�
         // lúc thư mục riêng CHƯA TỪNG tồn tại (case bị lọt lưới)
         { name: "chua-tung-co-rieng", path: base, createdAt: 0, lastUsedAt: Date.now(), sessionCount: 0 },
         { name: "da-bi-xoa", path: mistPath, createdAt: 0, lastUsedAt: Date.now(), sessionCount: 2 },
+        { name: "co-thu-muc-nhung-chot-goc", path: base, createdAt: 0, lastUsedAt: Date.now(), sessionCount: 4 },
       ],
       "",
       base,
     );
 
     const lines = out.split("\n");
-    const okLine = lines.find((l) => l.includes("con-thu-muc"));
+    const okLine = lines.find((l) => l.includes("con-thu-muc") && !l.includes("chot-goc"));
     const neverHadDirLine = lines.find((l) => l.includes("chua-tung-co-rieng"));
     const missingLine = lines.find((l) => l.includes("da-bi-xoa"));
+    const frozenToBaseLine = lines.find((l) => l.includes("co-thu-muc-nhung-chot-goc"));
     expect(okLine).not.toContain("⚠️");
     expect(neverHadDirLine).toContain("⚠️");
     expect(missingLine).toContain("⚠️");
+    expect(frozenToBaseLine).toContain("⚠️");
   } finally {
     rmSync(base, { recursive: true, force: true });
   }

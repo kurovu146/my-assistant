@@ -150,12 +150,14 @@ export function formatProjectList(
 
   const lines = projects.map((p) => {
     const mark = p.name === current ? "▸" : " ";
-    // Không được check theo `p.path` đã lưu trong registry: khi project được tạo
-    // TRƯỚC KHI thư mục riêng từng tồn tại, ensureProject lưu path = baseDir (giá
-    // trị fallback) — baseDir luôn có thật nên check kiểu đó luôn ra "còn tồn tại"
-    // dù project chưa từng có thư mục riêng. Phân giải lại từ TÊN + baseDir hiện
-    // tại thì đúng cho cả 2 trường hợp: chưa từng có thư mục, và có rồi bị xoá.
-    const warn = resolveProjectPath(p.name, baseDir).exists ? "" : " ⚠️";
+    // ⚠️ = thư mục làm việc đã chốt (`p.path`, chính là cwd của agent) không còn
+    // khớp với thư mục riêng của project trên đĩa. Hai trường hợp đều phải bắt:
+    //   1. Chốt vào baseDir vì lúc tạo project chưa có thư mục riêng — kể cả khi
+    //      thư mục đó xuất hiện sau, cwd vẫn giữ nguyên (cố ý: đổi cwd giết phiên).
+    //      Check theo `p.path` đơn thuần lọt case này vì baseDir luôn tồn tại.
+    //   2. Thư mục đã chốt bị xoá sau đó.
+    const own = resolveProjectPath(p.name, baseDir);
+    const warn = own.exists && own.path === p.path ? "" : " ⚠️";
     return `${mark} ${p.name} — ${p.sessionCount} phiên · ${timeAgo(p.lastUsedAt)}${warn}`;
   });
   return `📁 Project đang có:\n${lines.join("\n")}`;
@@ -186,12 +188,21 @@ export async function handleProject(ctx: Context): Promise<void> {
   const { project, created } = result;
   setCurrentProject(userId, project.name);
 
-  const { exists } = resolveProjectPath(project.name);
+  const own = resolveProjectPath(project.name);
   const session = getActiveSession(userId, project.name);
 
   let text = created ? `✅ Tạo project ${project.name}` : `✅ Đã chuyển sang ${project.name}`;
   text += `\n📂 ${project.path}`;
-  if (!exists) text += `\n⚠️ Không thấy thư mục riêng — dùng thư mục gốc`;
+  // project.path là cwd thật và đã chốt từ lúc tạo — nói rõ để anh không tưởng
+  // rằng cứ mkdir sau là agent tự nhảy vào thư mục đó (cố ý không nhảy: đổi cwd
+  // làm SDK mất transcript của phiên đang chạy).
+  if (project.path === config.claudeWorkingDir) {
+    text += own.exists
+      ? `\n⚠️ Đã có ${own.path} nhưng project chốt ở thư mục gốc từ lúc tạo`
+      : `\n⚠️ Không thấy thư mục riêng — chốt dùng thư mục gốc`;
+  } else if (!own.exists) {
+    text += `\n⚠️ Thư mục đã chốt không còn tồn tại`;
+  }
   if (session) text += `\n📝 Tiếp phiên: "${session.title}"`;
 
   await ctx.reply(text);

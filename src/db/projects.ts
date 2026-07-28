@@ -80,17 +80,17 @@ export function ensureProject(
   const existing = db.query(`SELECT * FROM projects WHERE name = ?`).get(name) as any;
 
   if (existing) {
-    // Lần đăng ký đầu có thể xảy ra trước khi thư mục thật được tạo (path khi
-    // đó là fallback về baseDir) — phân giải lại mỗi lần dùng để registry theo
-    // kịp, tránh kẹt với đường dẫn cũ đã sai lệch với thực tế trên đĩa.
-    const { path } = resolveProjectPath(name, baseDir);
-    if (path !== existing.path) {
-      db.run(`UPDATE projects SET path = ?, last_used_at = ? WHERE name = ?`, [path, now, name]);
-    } else {
-      db.run(`UPDATE projects SET last_used_at = ? WHERE name = ?`, [now, name]);
-    }
+    // KHÔNG phân giải lại `path`. Claude Agent SDK lưu transcript theo cwd
+    // (~/.claude/projects/<cwd-escaped>/<session-id>.jsonl), nên resume một phiên
+    // từ cwd khác lúc tạo sẽ ném "No conversation found" — phiên chết vĩnh viễn.
+    // Nếu path trôi theo đĩa thì chỉ cần `mkdir ~/dev/<tên>` sau khi đã nhắn vài
+    // câu là giết luôn phiên đang chạy. Đường dẫn phải chốt từ lúc tạo project.
+    //
+    // Trạng thái thư mục hiện tại vẫn hiển thị được (dấu ⚠️ trong /p) bằng cách
+    // gọi thẳng resolveProjectPath ở tầng hiển thị — đó là việc đọc, không đụng cwd.
+    db.run(`UPDATE projects SET last_used_at = ? WHERE name = ?`, [now, name]);
     return {
-      project: { name, path, createdAt: existing.created_at, lastUsedAt: now },
+      project: { name, path: existing.path, createdAt: existing.created_at, lastUsedAt: now },
       created: false,
     };
   }
@@ -103,6 +103,19 @@ export function ensureProject(
     now,
   ]);
   return { project: { name, path, createdAt: now, lastUsedAt: now }, created: true };
+}
+
+/**
+ * Thư mục làm việc đã chốt của project — nguồn sự thật cho `cwd` của agent.
+ *
+ * Đọc thẳng cột `path`, KHÔNG phân giải lại từ tên: xem ghi chú trong ensureProject.
+ * Trả null khi project không có trong registry (caller lùi về thư mục gốc).
+ */
+export function getProjectCwd(name: string): string | null {
+  const row = db.query(`SELECT path FROM projects WHERE name = ?`).get(name) as
+    | { path: string }
+    | undefined;
+  return row?.path ?? null;
 }
 
 export function listProjects(): (Project & { sessionCount: number })[] {

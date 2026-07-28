@@ -8,7 +8,7 @@ import { config } from "../config.ts";
 import { getClaudeProvider } from "../claude/provider.ts";
 import { parseModelOverride, resolveModelTier } from "../claude/router.ts";
 import { getActiveSession, createSession, touchSession } from "../db/sessions.ts";
-import { getCurrentProject, resolveProjectPath } from "../db/projects.ts";
+import { getCurrentProject, getProjectCwd } from "../db/projects.ts";
 import { getUserModel } from "../db/user-model.ts";
 import { logQuery } from "../db/queries.ts";
 import { splitMessage, formatUsageTotal, TOOL_ICONS } from "./formatter.ts";
@@ -52,6 +52,17 @@ export const UPLOAD_DIR = `${config.claudeWorkingDir}/.telegram-uploads`;
 
 export function uploadPath(fileName: string): string {
   return `${UPLOAD_DIR}/${fileName}`;
+}
+
+/**
+ * Thư mục làm việc cho một query.
+ *
+ * Lấy từ đường dẫn đã chốt trong registry, KHÔNG phân giải lại từ tên project:
+ * Claude Agent SDK lưu transcript theo cwd nên cwd đổi giữa chừng là phiên chết
+ * (xem ensureProject). `undefined` = dùng config.claudeWorkingDir.
+ */
+export function resolveQueryCwd(project: string): string | undefined {
+  return project ? (getProjectCwd(project) ?? undefined) : undefined;
 }
 
 /**
@@ -320,7 +331,7 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
       abortSignal: controller.signal,
       userId,
       modelOverride: selectedModel,
-      cwd: project ? resolveProjectPath(project).path : undefined,
+      cwd: resolveQueryCwd(project),
       project,
     });
 
