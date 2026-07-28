@@ -9,6 +9,7 @@ import { getClaudeProvider } from "../claude/provider.ts";
 import { parseModelOverride, resolveModelTier } from "../claude/router.ts";
 import { getActiveSession, createSession, touchSession } from "../db/sessions.ts";
 import { getCurrentProject, resolveProjectPath } from "../db/projects.ts";
+import { getUserModel } from "../db/user-model.ts";
 import { logQuery } from "../db/queries.ts";
 import { splitMessage, formatUsageTotal, TOOL_ICONS } from "./formatter.ts";
 import { sanitizeResponse } from "./content-filter.ts";
@@ -24,10 +25,12 @@ import {
   handleUsage,
   handleStop,
   handleReload,
-  handleMonitor,
-  handleUnmonitor,
-  handleMonitors,
   handleMemory,
+  handleForget,
+  handleModel,
+  handleModelCallback,
+  handleNews,
+  handleSkills,
   handleProject,
   activeQueries,
 } from "./commands.ts";
@@ -101,16 +104,18 @@ export function createBot(): Bot {
   bot.command("p", handleProject);
   bot.command("new", handleNew);
   bot.command("resume", handleResume);
+  bot.command("model", handleModel);
   bot.command("status", handleStatus);
   bot.command("usage", handleUsage);
   bot.command("stop", handleStop);
   bot.command("reload", handleReload);
-  bot.command("monitor", handleMonitor);
-  bot.command("unmonitor", handleUnmonitor);
-  bot.command("monitors", handleMonitors);
   bot.command("memory", handleMemory);
+  bot.command("forget", handleForget);
+  bot.command("news", handleNews);
+  bot.command("skills", handleSkills);
 
   bot.callbackQuery(/^resume:/, handleResumeCallback);
+  bot.callbackQuery(/^model:/, handleModelCallback);
 
   bot.on("message:text", handleTextMessage);
   bot.on("message:document", handleDocument);
@@ -272,7 +277,9 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
     const session = getActiveSession(userId, project);
     const sessionId = session?.sessionId;
 
-    const selectedModel: string | undefined = modelOverride;
+    // Ưu tiên: override inline ("dùng opus ...") → model chọn qua /model → config.
+    // Đặt ở đây nên áp dụng cho cả text, file và ảnh.
+    const selectedModel: string | undefined = modelOverride || getUserModel(userId) || undefined;
 
     const response = await getClaudeProvider().query({
       prompt,

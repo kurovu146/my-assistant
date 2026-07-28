@@ -1,6 +1,6 @@
 # my-assistant
 
-Personal Telegram AI bot powered by **Claude** (Agent SDK). Send messages via Telegram — AI responds with streaming, tools, memory, Gmail, Google Sheets, web monitoring, and more.
+Personal Telegram AI bot powered by **Claude** (Agent SDK). Send messages via Telegram — AI responds with streaming, tools, memory, Gmail, Google Sheets, news digests, and more.
 
 ## Stack
 
@@ -23,13 +23,11 @@ Personal Telegram AI bot powered by **Claude** (Agent SDK). Send messages via Te
 - **File & photo upload** — AI analyzes files/images from Telegram
 - **Gmail integration** — search, read, send, archive via MCP
 - **Google Sheets integration** — read, write, append via MCP
-- **Web Monitor** — track URL changes every 30 minutes
-- **News Digest** — daily news summary (HN + GitHub trending, 8am Vietnam time)
+- **News Digest** — daily news summary (HN + GitHub trending, 8am Vietnam time), or on demand via `/news`
 - **Skills system** — auto-load `.md` files, hot-reload on change
 - **Content filter** — automatically hide secrets/credentials in responses
 - **No turn or time limit** — long tasks run to completion; only `/stop` interrupts them
-- **Model override** — switch model tier at runtime (`use opus`, `use fast`...)
-- `/stop` — abort a running query
+- **Model selection** — `/model` persists a per-user choice, or override a single message (`use opus`, `use fast`...)
 
 ## Setup
 
@@ -135,7 +133,7 @@ src/
 │   └── types.ts          # Provider interfaces
 ├── telegram/
 │   ├── bot.ts            # Message handlers, streaming UX, queue
-│   ├── commands.ts       # 10 bot commands
+│   ├── commands.ts       # 13 bot commands
 │   ├── middleware.ts      # Auth (whitelist)
 │   ├── formatter.ts      # Message splitting & formatting
 │   └── content-filter.ts # Secret redaction (15+ patterns)
@@ -143,7 +141,8 @@ src/
 │   ├── connection.ts     # SQLite init, schema, migrations
 │   ├── sessions.ts       # Session CRUD
 │   ├── queries.ts        # Query log & analytics
-│   └── monitors.ts       # URL monitoring CRUD
+│   ├── projects.ts       # Project registry + current project
+│   └── user-model.ts     # Per-user model chosen via /model
 ├── memory/
 │   ├── repository.ts     # Memory fact CRUD + FTS5 search
 │   ├── extraction.ts     # Tier 1: passive fact extraction
@@ -153,8 +152,7 @@ src/
 │   ├── sheets.ts         # Google Sheets MCP server
 │   └── memory.ts         # Tier 2: active memory MCP tools
 └── scheduler/
-    ├── news-digest.ts    # Daily HN + GitHub trending digest
-    └── web-monitor.ts    # URL change detection (hash-based)
+    └── news-digest.ts    # Daily HN + GitHub trending digest
 skills/                   # Knowledge base (.md files, auto-loaded)
 ```
 
@@ -163,17 +161,18 @@ skills/                   # Knowledge base (.md files, auto-loaded)
 | Command | Description |
 |---------|-------------|
 | `/start` | Bot introduction |
+| `/p [name]` | List projects, or switch to one (created on first use) |
 | `/new` | Start a new session |
 | `/resume` | Resume a previous session (last 5) |
-| `/stop` | Abort a running query |
+| `/model [tier]` | View/change model. No argument → button menu; `/model opus` switches directly; `/model reset` restores the default |
 | `/status` | Model, uptime, usage stats |
-| `/p [name]` | List projects, or switch to one (created on first use) |
 | `/usage` | Token usage: today / 7 days / 30 days, broken down by model |
+| `/memory` | View memory facts by category (with `#id`) |
+| `/forget <id>` | Delete one fact from memory |
+| `/news` | Fetch the tech digest now instead of waiting for the cron |
+| `/skills` | List loaded skills |
 | `/reload` | Reload skills without restart |
-| `/memory` | View memory facts by category |
-| `/monitor <url> [label]` | Add URL to watch list |
-| `/unmonitor <url>` | Remove URL from watch list |
-| `/monitors` | View monitored URLs |
+| `/stop` | Abort a running query |
 
 ## Multi-project
 

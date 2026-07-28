@@ -54,15 +54,12 @@ db.run(`
 
 db.run(`CREATE INDEX IF NOT EXISTS idx_query_logs_user ON query_logs (user_id, created_at)`);
 
+// Model tier user tự chọn qua /model — trống nghĩa là dùng config.claudeModel
 db.run(`
-  CREATE TABLE IF NOT EXISTS monitored_urls (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    url TEXT NOT NULL,
-    label TEXT NOT NULL DEFAULT '',
-    last_hash TEXT,
-    created_at INTEGER NOT NULL,
-    last_checked_at INTEGER
+  CREATE TABLE IF NOT EXISTS user_model (
+    user_id INTEGER PRIMARY KEY,
+    model TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
   )
 `);
 

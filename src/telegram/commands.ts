@@ -14,14 +14,16 @@ import {
   type Project,
 } from "../db/projects.ts";
 import { getQueryStats, getUsageByPeriod, type PeriodUsage } from "../db/queries.ts";
-import { addMonitoredUrl, removeMonitoredUrl, getUserMonitoredUrls } from "../db/monitors.ts";
-import { getUserFacts, countFacts } from "../memory/repository.ts";
+import { clearUserModel, getUserModel, setUserModel } from "../db/user-model.ts";
+import { deleteFact, getUserFacts, countFacts } from "../memory/repository.ts";
 import { countDocuments } from "../memory/knowledge.ts";
 import { countEntities } from "../memory/entities.ts";
-import { formatTokenCount, timeAgo, TOOL_ICONS } from "./formatter.ts";
+import { formatTokenCount, splitMessage, timeAgo, TOOL_ICONS } from "./formatter.ts";
 import { config } from "../config.ts";
 import { getClaudeProvider } from "../claude/provider.ts";
-import { getSkillCount } from "../claude/skills.ts";
+import { getSkillCount, listSkillSummaries, type SkillMeta } from "../claude/skills.ts";
+import { parseTier, resolveModelTier, tierOfModel, TIER_LABELS, type ModelTier } from "../claude/router.ts";
+import { createNewsDigest } from "../scheduler/news-digest.ts";
 
 // Bot start time — để tính uptime
 const botStartTime = Date.now();
@@ -45,14 +47,18 @@ export async function handleStart(ctx: Context): Promise<void> {
       `🔍 Nghiên cứu — tìm kiếm, tổng hợp thông tin\n` +
       `📁 File — đọc, phân tích file bạn gửi\n\n` +
       `Lệnh:\n` +
+      `/p — Chuyển project\n` +
       `/new — Phiên hội thoại mới\n` +
       `/resume — Tiếp tục phiên cũ\n` +
+      `/model — Đổi model AI\n` +
       `/stop — Dừng query đang chạy\n` +
       `/status — Xem trạng thái\n` +
       `/usage — Token đã dùng theo kỳ\n` +
       `/memory — Xem bộ nhớ dài hạn\n` +
-      `/reload — Reload skills\n` +
-      `/p — Chuyển project\n\n` +
+      `/forget <id> — Xoá 1 fact khỏi bộ nhớ\n` +
+      `/news — Tin công nghệ mới nhất\n` +
+      `/skills — Skill đang load\n` +
+      `/reload — Reload skills\n\n` +
       `Gửi tin nhắn bất kỳ để bắt đầu! 🚀`,
   );
 }
@@ -244,13 +250,25 @@ export async function handleStatus(ctx: Context): Promise<void> {
     `📊 Trạng thái\n\n` +
       `${statusText}\n` +
       `⏱ Uptime: ${uptime}\n\n` +
-      `🤖 Model: ${config.claudeModel}\n` +
+      `🤖 Model: ${describeModel(userId)}\n` +
       `🔑 Auth: ${config.authMode}\n` +
       `${projectInfo}\n` +
       `${skillInfo}\n\n` +
       `${statsInfo}\n\n` +
       `${sessionInfo}`,
   );
+}
+
+/**
+ * Model đang áp dụng cho user + nguồn của nó (đã chọn qua /model hay mặc định).
+ * Dùng chung cho /status và /model.
+ */
+function describeModel(userId: number): string {
+  const chosen = getUserModel(userId);
+  const model = chosen || config.claudeModel;
+  const tier = tierOfModel(model);
+  const label = tier ? ` — ${TIER_LABELS[tier]}` : "";
+  return `${model}${label}${chosen ? "" : " (mặc định)"}`;
 }
 
 function formatUptime(ms: number): string {
@@ -311,97 +329,133 @@ export async function handleReload(ctx: Context): Promise<void> {
 }
 
 /**
- * /monitor <url> [label] — Thêm URL để theo dõi thay đổi
+ * /model — xem model đang dùng + nút đổi
+ * /model opus|sonnet|haiku (hoặc fast|balanced|powerful) — đổi thẳng
+ * /model reset — quay về model mặc định của config
  */
-export async function handleMonitor(ctx: Context): Promise<void> {
+export async function handleModel(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
   if (userId === undefined) return;
 
-  const text = (ctx.message as any)?.text || "";
-  const args = text.replace(/^\/monitor\s*/, "").trim();
+  const arg = (ctx.match as string | undefined)?.trim().toLowerCase() ?? "";
 
-  if (!args) {
-    await ctx.reply(
-      "📡 Cách dùng: `/monitor <url> [label]`\n\n" +
-        "Ví dụ:\n" +
-        "`/monitor https://example.com Blog cá nhân`\n" +
-        "`/monitor https://docs.example.com/api API docs`",
-      { parse_mode: "Markdown" },
-    );
+  if (arg === "reset" || arg === "default") {
+    clearUserModel(userId);
+    await ctx.reply(`↩️ Đã bỏ lựa chọn riêng.\n🤖 Model: ${describeModel(userId)}`);
     return;
   }
 
-  // Tách URL và label
-  const parts = args.split(/\s+/);
-  const url = parts[0]!;
-  const label = parts.slice(1).join(" ") || "";
+  if (arg) {
+    const tier = parseTier(arg);
+    if (!tier) {
+      await ctx.reply(
+        "❌ Không nhận ra model này.\n\n" +
+          "Dùng: `/model haiku` · `/model sonnet` · `/model opus`\n" +
+          "Hoặc `/model reset` để về mặc định.",
+        { parse_mode: "Markdown" },
+      );
+      return;
+    }
+    setUserModel(userId, resolveModelTier(tier));
+    await ctx.reply(`✅ Đã đổi model.\n🤖 ${describeModel(userId)}`);
+    return;
+  }
 
-  // Validate URL
+  // Không tham số → menu nút bấm
+  const tiers: ModelTier[] = ["fast", "balanced", "powerful"];
+  await ctx.reply(`🤖 Model hiện tại: ${describeModel(userId)}\n\nChọn model mới:`, {
+    reply_markup: {
+      inline_keyboard: tiers.map((tier) => [
+        { text: TIER_LABELS[tier], callback_data: `model:${tier}` },
+      ]),
+    },
+  });
+}
+
+/** Xử lý khi user bấm nút model từ /model */
+export async function handleModelCallback(ctx: Context): Promise<void> {
+  const userId = ctx.from?.id;
+  if (userId === undefined) return;
+
+  const data = ctx.callbackQuery?.data;
+  if (!data?.startsWith("model:")) return;
+
+  const tier = parseTier(data.replace("model:", ""));
+  if (!tier) {
+    await ctx.answerCallbackQuery({ text: "❌ Model không hợp lệ" });
+    return;
+  }
+
+  setUserModel(userId, resolveModelTier(tier));
+  await ctx.answerCallbackQuery({ text: "✅ Đã đổi model" });
+  await ctx.reply(`🤖 ${describeModel(userId)}`);
+}
+
+/**
+ * /news — Lấy digest tin công nghệ ngay, không đợi cron 8h sáng
+ */
+export async function handleNews(ctx: Context): Promise<void> {
+  const msg = await ctx.reply("⏳ Đang lấy tin từ Hacker News + GitHub Trending...");
+
   try {
-    new URL(url);
-  } catch {
-    await ctx.reply("❌ URL không hợp lệ. Phải bắt đầu bằng http:// hoặc https://");
-    return;
-  }
-
-  addMonitoredUrl(userId, url, label);
-  await ctx.reply(
-    `✅ Đã thêm monitor!\n\n` +
-      `🔗 ${url}\n` +
-      (label ? `📝 ${label}\n` : "") +
-      `⏰ Check mỗi 30 phút`,
-  );
-}
-
-/**
- * /unmonitor <url> — Bỏ theo dõi URL
- */
-export async function handleUnmonitor(ctx: Context): Promise<void> {
-  const userId = ctx.from?.id;
-  if (userId === undefined) return;
-
-  const text = (ctx.message as any)?.text || "";
-  const url = text.replace(/^\/unmonitor\s*/, "").trim();
-
-  if (!url) {
-    await ctx.reply("📡 Cách dùng: `/unmonitor <url>`", { parse_mode: "Markdown" });
-    return;
-  }
-
-  const removed = removeMonitoredUrl(userId, url);
-  if (removed) {
-    await ctx.reply(`✅ Đã bỏ monitor: ${url}`);
-  } else {
-    await ctx.reply(`❌ Không tìm thấy URL này trong danh sách monitor.`);
+    const digest = await createNewsDigest();
+    const parts = splitMessage(digest);
+    // Phần đầu thay thế message "đang lấy tin", phần còn lại gửi tiếp
+    await ctx.api.editMessageText(ctx.chat!.id, msg.message_id, parts[0] ?? digest);
+    for (const part of parts.slice(1)) {
+      await ctx.reply(part);
+    }
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    await ctx.api.editMessageText(ctx.chat!.id, msg.message_id, `❌ Lỗi lấy tin: ${errMsg}`);
   }
 }
 
+/** Dựng chuỗi danh sách skill — tách riêng để test không cần Context của grammY */
+export function formatSkillList(skills: SkillMeta[]): string {
+  if (skills.length === 0) {
+    return "📚 Chưa có skill nào trong thư mục `skills/`.";
+  }
+
+  const lines = skills.map((s) => {
+    const kb = (s.sizeBytes / 1024).toFixed(1);
+    const desc = s.description ? `\n   ${s.description}` : "";
+    return `• ${s.name} (${kb} KB)${desc}`;
+  });
+  return `📚 ${skills.length} skill đang load:\n\n${lines.join("\n")}`;
+}
+
 /**
- * /monitors — Xem danh sách URLs đang theo dõi
+ * /skills — Xem danh sách skill đang load
  */
-export async function handleMonitors(ctx: Context): Promise<void> {
+export async function handleSkills(ctx: Context): Promise<void> {
+  const skills = await listSkillSummaries();
+  for (const part of splitMessage(formatSkillList(skills))) {
+    await ctx.reply(part);
+  }
+}
+
+/**
+ * /forget <id> — Xoá 1 fact khỏi bộ nhớ (id lấy từ /memory)
+ */
+export async function handleForget(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
   if (userId === undefined) return;
 
-  const urls = getUserMonitoredUrls(userId);
+  const arg = (ctx.match as string | undefined)?.trim() ?? "";
+  const id = Number(arg);
 
-  if (urls.length === 0) {
+  if (!arg || !Number.isInteger(id) || id <= 0) {
     await ctx.reply(
-      "📡 Chưa monitor URL nào.\n\nDùng `/monitor <url> [label]` để thêm.",
+      "🗑 Cách dùng: `/forget <id>`\n\nID lấy từ `/memory` — ví dụ `/forget 42`.",
       { parse_mode: "Markdown" },
     );
     return;
   }
 
-  const list = urls
-    .map((u, i) => {
-      const status = u.lastHash ? "✅" : "⏳";
-      const checked = u.lastCheckedAt ? timeAgo(u.lastCheckedAt) : "chưa check";
-      return `${i + 1}. ${status} ${u.label || u.url}\n   🔗 ${u.url}\n   🕐 ${checked}`;
-    })
-    .join("\n\n");
-
-  await ctx.reply(`📡 Đang monitor ${urls.length} URLs:\n\n${list}`);
+  // deleteFact lọc theo user_id nên không xoá được fact của người khác
+  const deleted = deleteFact(userId, id);
+  await ctx.reply(deleted ? `✅ Đã xoá fact #${id}` : `❌ Không tìm thấy fact #${id}`);
 }
 
 /**
@@ -443,15 +497,20 @@ export async function handleMemory(ctx: Context): Promise<void> {
     text += `\n📁 ${category} (${categoryFacts.length})\n`;
     for (const f of categoryFacts) {
       const date = new Date(f.updatedAt).toLocaleDateString("vi-VN");
-      text += `  • ${f.fact} (${date})\n`;
+      // #id để dùng với /forget
+      text += `  • #${f.id} ${f.fact} (${date})\n`;
     }
   }
 
   if (total > 20) {
     text += `\n... và ${total - 20} facts khác`;
   }
+  text += `\n\n🗑 Xoá 1 fact: /forget <id>`;
 
-  await ctx.reply(text);
+  // Danh sách 20 fact dễ vượt 4096 ký tự của Telegram
+  for (const part of splitMessage(text)) {
+    await ctx.reply(part);
+  }
 }
 
 /**

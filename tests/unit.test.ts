@@ -8,7 +8,8 @@ import { resolve, join } from "path";
 import { tmpdir } from "os";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
 import { formatTokenCount, formatUsageTotal, splitMessage } from "../src/telegram/formatter.ts";
-import { parseModelOverride, resolveModelTier } from "../src/claude/router.ts";
+import { parseModelOverride, parseTier, resolveModelTier, tierOfModel } from "../src/claude/router.ts";
+import { clearUserModel, getUserModel, setUserModel } from "../src/db/user-model.ts";
 import { filterSensitiveContent } from "../src/telegram/content-filter.ts";
 import {
   saveFact,
@@ -25,7 +26,7 @@ import { db } from "../src/db/connection.ts";
 import { config } from "../src/config.ts";
 import { normalizeProjectName, resolveProjectPath, ensureProject, listProjects, getCurrentProject, setCurrentProject } from "../src/db/projects.ts";
 import { getActiveSession, createSession, clearActiveSession, getRecentSessions } from "../src/db/sessions.ts";
-import { formatProjectList } from "../src/telegram/commands.ts";
+import { formatProjectList, formatSkillList } from "../src/telegram/commands.ts";
 import {
   bytesToEmbedding,
   cosineSimilarity,
@@ -874,6 +875,59 @@ test("consolidation embed và liên kết fact vừa gộp", async () => {
   expect(embedCalls[0]!.text).toBe("BasoTien dùng Go và Godot");
   // Phải embed đúng fact MỚI, không phải fact vừa bị xóa
   expect(deleteIds).not.toContain(embedCalls[0]!.factId);
+});
+
+// --- /model: chọn model theo user ---
+
+test("parseTier nhận cả tên model lẫn tên tier, không phân biệt hoa thường", () => {
+  expect(parseTier("opus")).toBe("powerful");
+  expect(parseTier("  SONNET ")).toBe("balanced");
+  expect(parseTier("fast")).toBe("fast");
+  expect(parseTier("gpt-4")).toBeNull();
+  expect(parseTier("")).toBeNull();
+});
+
+test("tierOfModel trả null cho model lạ thay vì đoán bừa", () => {
+  expect(tierOfModel(resolveModelTier("powerful"))).toBe("powerful");
+  expect(tierOfModel("claude-tuy-bien-cua-anh")).toBeNull();
+});
+
+test("model của user lưu được, đọc lại đúng, xoá thì về rỗng", () => {
+  expect(getUserModel(777)).toBe("");
+
+  setUserModel(777, "claude-haiku-4-5");
+  expect(getUserModel(777)).toBe("claude-haiku-4-5");
+
+  // Chọn lại lần nữa phải ghi đè, không tạo dòng thứ hai
+  setUserModel(777, "claude-opus-5");
+  expect(getUserModel(777)).toBe("claude-opus-5");
+  const count = db.query(`SELECT COUNT(*) as c FROM user_model WHERE user_id = ?`).get(777) as { c: number };
+  expect(count.c).toBe(1);
+
+  clearUserModel(777);
+  expect(getUserModel(777)).toBe("");
+});
+
+test("model của user này không lẫn sang user khác", () => {
+  setUserModel(801, "claude-haiku-4-5");
+  expect(getUserModel(802)).toBe("");
+  clearUserModel(801);
+});
+
+// --- /skills ---
+
+test("formatSkillList báo rõ khi chưa có skill nào", () => {
+  expect(formatSkillList([])).toContain("Chưa có skill");
+});
+
+test("formatSkillList liệt kê tên, dung lượng và mô tả", () => {
+  const text = formatSkillList([
+    { name: "godot", title: "Godot", description: "Scene & Node", filePath: "/x/godot.md", sizeBytes: 2048 },
+  ]);
+  expect(text).toContain("1 skill");
+  expect(text).toContain("godot");
+  expect(text).toContain("2.0 KB");
+  expect(text).toContain("Scene & Node");
 });
 
 // --- Agent chạy trong thư mục của project ---

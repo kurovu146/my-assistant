@@ -1,6 +1,6 @@
 # my-assistant
 
-Bot AI Telegram cá nhân, sử dụng **Claude** (Agent SDK). Gửi tin nhắn qua Telegram, AI xử lý với streaming, tools, memory, Gmail, Google Sheets, web monitor...
+Bot AI Telegram cá nhân, sử dụng **Claude** (Agent SDK). Gửi tin nhắn qua Telegram, AI xử lý với streaming, tools, memory, Gmail, Google Sheets, news digest...
 
 ## Stack
 
@@ -23,13 +23,11 @@ Bot AI Telegram cá nhân, sử dụng **Claude** (Agent SDK). Gửi tin nhắn 
 - **Upload file & ảnh** — AI phân tích file/ảnh từ Telegram
 - **Gmail integration** — search, read, send, archive qua MCP
 - **Google Sheets integration** — read, write, append qua MCP
-- **Web Monitor** — theo dõi thay đổi URL (30 phút/lần)
-- **News Digest** — tóm tắt tin tức hàng ngày (HN + GitHub trending, 8h sáng VN)
+- **News Digest** — tóm tắt tin tức hàng ngày (HN + GitHub trending, 8h sáng VN) hoặc gọi ngay bằng `/news`
 - **Skills system** — tự động load file `.md`, hot-reload khi thay đổi
 - **Content filter** — tự động ẩn secrets/credentials trong response
 - **Không giới hạn turn/thời gian** — task dài chạy tới khi xong, chỉ `/stop` mới dừng được
-- **Model override** — đổi model tier runtime (`dung opus`, `use fast`...)
-- `/stop` — dừng query đang chạy
+- **Chọn model** — `/model` lưu lựa chọn theo user, hoặc override từng tin nhắn (`dung opus`, `use fast`...)
 
 ## Cài đặt
 
@@ -135,7 +133,7 @@ src/
 │   └── types.ts          # Provider interfaces
 ├── telegram/
 │   ├── bot.ts            # Message handlers, streaming UX, queue
-│   ├── commands.ts       # 10 lệnh bot
+│   ├── commands.ts       # 13 lệnh bot
 │   ├── middleware.ts      # Auth (whitelist)
 │   ├── formatter.ts      # Chia nhỏ & format tin nhắn
 │   └── content-filter.ts # Ẩn secrets (15+ patterns)
@@ -143,7 +141,8 @@ src/
 │   ├── connection.ts     # SQLite init, schema, migrations
 │   ├── sessions.ts       # Session CRUD
 │   ├── queries.ts        # Query log & analytics
-│   └── monitors.ts       # URL monitoring CRUD
+│   ├── projects.ts       # Project registry + project đang mở
+│   └── user-model.ts     # Model từng user chọn qua /model
 ├── memory/
 │   ├── repository.ts     # Memory fact CRUD + FTS5 search
 │   ├── extraction.ts     # Tier 1: passive fact extraction
@@ -153,8 +152,7 @@ src/
 │   ├── sheets.ts         # Google Sheets MCP server
 │   └── memory.ts         # Tier 2: active memory MCP tools
 └── scheduler/
-    ├── news-digest.ts    # Daily HN + GitHub trending digest
-    └── web-monitor.ts    # URL change detection (hash-based)
+    └── news-digest.ts    # Daily HN + GitHub trending digest
 skills/                   # Knowledge base (file .md, tự động load)
 ```
 
@@ -163,17 +161,18 @@ skills/                   # Knowledge base (file .md, tự động load)
 | Lệnh | Mô tả |
 |------|-------|
 | `/start` | Giới thiệu bot |
+| `/p [tên]` | Xem danh sách project, hoặc chuyển sang project (tạo nếu chưa có) |
 | `/new` | Tạo phiên mới |
 | `/resume` | Tiếp tục phiên cũ (5 phiên gần nhất) |
-| `/stop` | Dừng query đang chạy |
+| `/model [tier]` | Xem/đổi model. Không tham số → menu nút bấm; `/model opus` đổi thẳng; `/model reset` về mặc định |
 | `/status` | Model, uptime, usage stats |
-| `/p [tên]` | Xem danh sách project, hoặc chuyển sang project (tạo nếu chưa có) |
 | `/usage` | Token đã dùng: hôm nay / 7 ngày / 30 ngày, kèm breakdown theo model |
+| `/memory` | Xem memory facts theo category (kèm `#id`) |
+| `/forget <id>` | Xóa 1 fact khỏi memory |
+| `/news` | Lấy digest tin công nghệ ngay, không đợi cron |
+| `/skills` | Danh sách skill đang load |
 | `/reload` | Reload skills không cần restart |
-| `/memory` | Xem memory facts theo category |
-| `/monitor <url> [label]` | Thêm URL vào danh sách theo dõi |
-| `/unmonitor <url>` | Xóa URL khỏi danh sách theo dõi |
-| `/monitors` | Xem danh sách URLs đang theo dõi |
+| `/stop` | Dừng query đang chạy |
 
 ## Multi-project
 

@@ -14,7 +14,6 @@
 import { createBot } from "./telegram/bot.ts";
 import { config } from "./config.ts";
 import { getClaudeProvider } from "./claude/provider.ts";
-import { startWebMonitor, stopWebMonitor } from "./scheduler/web-monitor.ts";
 import { startMemoryConsolidation, stopMemoryConsolidation } from "./memory/consolidation.ts";
 import { backfillFactEmbeddings } from "./memory/semantic.ts";
 import { startNewsDigest, stopNewsDigest } from "./scheduler/news-digest.ts";
@@ -66,14 +65,15 @@ async function main() {
     { command: "p", description: "Chuyển project" },
     { command: "new", description: "Phiên hội thoại mới" },
     { command: "resume", description: "Tiếp tục phiên cũ" },
+    { command: "model", description: "Đổi model AI" },
     { command: "status", description: "Xem trạng thái & thống kê" },
     { command: "usage", description: "Token đã dùng theo kỳ" },
-    { command: "stop", description: "Dừng query đang chạy" },
-    { command: "reload", description: "Reload skills" },
     { command: "memory", description: "Xem bộ nhớ dài hạn" },
-    { command: "monitor", description: "Theo dõi webpage thay đổi" },
-    { command: "unmonitor", description: "Bỏ theo dõi webpage" },
-    { command: "monitors", description: "Danh sách đang theo dõi" },
+    { command: "forget", description: "Xoá 1 fact khỏi bộ nhớ" },
+    { command: "news", description: "Tin công nghệ mới nhất" },
+    { command: "skills", description: "Skill đang load" },
+    { command: "reload", description: "Reload skills" },
+    { command: "stop", description: "Dừng query đang chạy" },
   ]);
 
   // 6. Start cron services
@@ -90,9 +90,6 @@ async function main() {
         logger.error("❌ Notify error:", err);
       }
     };
-
-    // Web Monitor — check mỗi 30 phút
-    startWebMonitor(sendTelegram);
 
     // Memory Consolidation — gộp facts mỗi 24h
     startMemoryConsolidation(config.allowedUsers);
@@ -152,7 +149,6 @@ async function startPollingWithRecovery(bot: Bot, attempt = 0) {
 
 async function shutdown() {
   logger.log("\n👋 Đang tắt bot...");
-  stopWebMonitor();
   stopMemoryConsolidation();
   stopNewsDigest();
   stopSkillWatcher();
