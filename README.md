@@ -15,6 +15,7 @@ Bot AI Telegram cá nhân, sử dụng **Claude** (Agent SDK). Gửi tin nhắn 
 - **Claude Agent SDK** — đầy đủ tools (Bash, Read, Write, Edit, web search...), MCP servers, session resume
 - **Streaming responses** — cập nhật tiến trình thời gian thực, hiển thị tool đang chạy, typing loop
 - **Session management** — tiếp tục hội thoại, timeout 72h
+- **Multi-project** — mỗi project một phiên và một thư mục riêng, memory không lẫn giữa các project
 - **Persistent Memory** — Tier 1 (passive extraction) + Tier 2 (active MCP tools)
 - **Semantic search** — tìm memory theo ý nghĩa (FTS5 + vector), tự liên kết fact liên quan
 - **Knowledge base** — lưu tài liệu dài, tự chia đoạn và đánh index ngữ nghĩa
@@ -166,12 +167,24 @@ skills/                   # Knowledge base (file .md, tự động load)
 | `/resume` | Tiếp tục phiên cũ (5 phiên gần nhất) |
 | `/stop` | Dừng query đang chạy |
 | `/status` | Model, uptime, usage stats |
+| `/p [tên]` | Xem danh sách project, hoặc chuyển sang project (tạo nếu chưa có) |
 | `/usage` | Token đã dùng: hôm nay / 7 ngày / 30 ngày, kèm breakdown theo model |
 | `/reload` | Reload skills không cần restart |
 | `/memory` | Xem memory facts theo category |
 | `/monitor <url> [label]` | Thêm URL vào danh sách theo dõi |
 | `/unmonitor <url>` | Xóa URL khỏi danh sách theo dõi |
 | `/monitors` | Xem danh sách URLs đang theo dõi |
+
+## Multi-project
+
+Mỗi project giữ một phiên hội thoại riêng, nên rời `funlife` giữa chừng sang `my-assistant`
+làm việc khác rồi quay lại thì mạch cũ vẫn còn.
+
+- `/p` — xem project đang có
+- `/p <tên>` — chuyển sang project, tự tạo nếu chưa có
+- Thư mục làm việc là `~/dev/<tên>` nếu tồn tại, không thì lùi về `CLAUDE_WORKING_DIR`
+- Memory chia hai loại: fact chung (sở thích, thói quen) theo anh khắp nơi; fact riêng
+  (stack, kiến trúc) chỉ hiện ở đúng project của nó
 
 ## Hệ thống Memory
 

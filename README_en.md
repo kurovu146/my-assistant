@@ -15,6 +15,7 @@ Personal Telegram AI bot powered by **Claude** (Agent SDK). Send messages via Te
 - **Claude Agent SDK** — full tools (Bash, Read, Write, Edit, web search...), MCP servers, session resume
 - **Streaming responses** — real-time progress, tool indicators, typing loop
 - **Session management** — resume conversation, 72h timeout
+- **Multi-project** — each project keeps its own session, working directory, and memory scope
 - **Persistent Memory** — Tier 1 (passive extraction) + Tier 2 (active MCP tools)
 - **Semantic search** — find memories by meaning (FTS5 + vector), auto-links related facts
 - **Knowledge base** — store long documents, auto-chunked and semantically indexed
@@ -166,12 +167,24 @@ skills/                   # Knowledge base (.md files, auto-loaded)
 | `/resume` | Resume a previous session (last 5) |
 | `/stop` | Abort a running query |
 | `/status` | Model, uptime, usage stats |
+| `/p [name]` | List projects, or switch to one (created on first use) |
 | `/usage` | Token usage: today / 7 days / 30 days, broken down by model |
 | `/reload` | Reload skills without restart |
 | `/memory` | View memory facts by category |
 | `/monitor <url> [label]` | Add URL to watch list |
 | `/unmonitor <url>` | Remove URL from watch list |
 | `/monitors` | View monitored URLs |
+
+## Multi-project
+
+Each project keeps its own conversation session, so leaving `funlife` mid-task for
+`my-assistant` and coming back later resumes where you left off.
+
+- `/p` — list projects
+- `/p <name>` — switch to a project, creating it on first use
+- Working directory is `~/dev/<name>` when it exists, otherwise `CLAUDE_WORKING_DIR`
+- Memory splits in two: global facts (preferences, habits) follow you everywhere; project
+  facts (stack, architecture) only surface in their own project
 
 ## Memory System
 
