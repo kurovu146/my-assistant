@@ -72,8 +72,6 @@ export const config = {
     : ("subscription" as const),
   claudeModel: process.env.CLAUDE_MODEL || "claude-opus-5",
   claudeWorkingDir: expandHome(process.env.CLAUDE_WORKING_DIR || process.cwd()),
-  // Agent tuning — 30 turns đủ cho task phức tạp (research, multi-file)
-  maxTurns: envInt("CLAUDE_MAX_TURNS", 30),
 
   // Session
   sessionTimeoutHours: envInt("SESSION_TIMEOUT_HOURS", 72),

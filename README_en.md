@@ -26,7 +26,7 @@ Personal Telegram AI bot powered by **Claude** (Agent SDK). Send messages via Te
 - **News Digest** — daily news summary (HN + GitHub trending, 8am Vietnam time)
 - **Skills system** — auto-load `.md` files, hot-reload on change
 - **Content filter** — automatically hide secrets/credentials in responses
-- **Auto-continue** — automatically continues when maxTurns is reached (up to 5 times, 180 turns)
+- **No turn limit** — long tasks run to completion (safeguards: 2h timeout and `/stop`)
 - **Model override** — switch model tier at runtime (`use opus`, `use fast`...)
 - `/stop` — abort a running query
 
@@ -65,9 +65,6 @@ CLAUDE_WORKING_DIR=~/dev
 
 # Session timeout
 SESSION_TIMEOUT_HOURS=72
-
-# Max agent loop iterations
-CLAUDE_MAX_TURNS=30
 
 # Ask for Telegram confirmation before sending/trashing email (on by default)
 # GMAIL_REQUIRE_CONFIRM=0

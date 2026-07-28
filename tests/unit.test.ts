@@ -79,7 +79,7 @@ async function loadConfigWith(env: Record<string, string>): Promise<number> {
 test("config chặn khởi động khi whitelist rỗng hoặc sai định dạng", async () => {
   expect(await loadConfigWith({})).toBe(1);
   expect(await loadConfigWith({ TELEGRAM_ALLOWED_USERS: "abc,123" })).toBe(1);
-  expect(await loadConfigWith({ TELEGRAM_ALLOWED_USERS: "123", CLAUDE_MAX_TURNS: "nhiều" })).toBe(1);
+  expect(await loadConfigWith({ TELEGRAM_ALLOWED_USERS: "123", SESSION_TIMEOUT_HOURS: "nhiều" })).toBe(1);
 
   expect(await loadConfigWith({ TELEGRAM_ALLOWED_USERS: "123,456" })).toBe(0);
   expect(await loadConfigWith({ ALLOW_ALL_USERS: "1" })).toBe(0);

@@ -26,7 +26,7 @@ Bot AI Telegram cá nhân, sử dụng **Claude** (Agent SDK). Gửi tin nhắn 
 - **News Digest** — tóm tắt tin tức hàng ngày (HN + GitHub trending, 8h sáng VN)
 - **Skills system** — tự động load file `.md`, hot-reload khi thay đổi
 - **Content filter** — tự động ẩn secrets/credentials trong response
-- **Auto-continue** — tự động tiếp tục khi hết maxTurns (tối đa 5 lần, 180 turns)
+- **Không giới hạn số turn** — task dài chạy trọn, không bị cắt giữa chừng (phanh: timeout 2h và `/stop`)
 - **Model override** — đổi model tier runtime (`dung opus`, `use fast`...)
 - `/stop` — dừng query đang chạy
 
@@ -65,9 +65,6 @@ CLAUDE_WORKING_DIR=~/dev
 
 # Timeout phiên hội thoại
 SESSION_TIMEOUT_HOURS=72
-
-# Số vòng lặp tối đa của agent
-CLAUDE_MAX_TURNS=30
 
 # Hỏi xác nhận qua Telegram trước khi gửi/xóa email (mặc định bật)
 # GMAIL_REQUIRE_CONFIRM=0

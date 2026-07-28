@@ -230,7 +230,8 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
             permissionMode: "bypassPermissions" as const,
             allowDangerouslySkipPermissions: true,
             hooks: auditBashHook,
-            maxTurns: (activeModel || config.claudeModel).includes("haiku") ? 5 : config.maxTurns,
+            // Không đặt maxTurns: task dài bao nhiêu lượt cũng chạy trọn, không bị cắt
+            // giữa chừng. Phanh còn lại là abortController bên dưới (2 giờ) và /stop.
             ...(sessionId ? { resume: sessionId } : {}),
             abortController: (() => {
               const controller = new AbortController();
@@ -245,7 +246,6 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
         });
 
         let usage: UsageStats | undefined;
-        let hitMaxTurns = false;
 
         for await (const message of stream) {
           resolvedSessionId = extractSessionId(message, resolvedSessionId);
@@ -271,12 +271,6 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
               if ("error" in message && message.error) {
                 logger.error("❌ Claude result error:", message.error);
               }
-              // Detect max turns reached
-              const msg = message as any;
-              if (msg.subtype === "error_max_turns") {
-                hitMaxTurns = true;
-                logger.log(`⚠️ Max turns reached (${msg.num_turns} turns) — session ${resolvedSessionId}`);
-              }
               usage = extractUsage(message);
               if (usage) {
                 this.cumulativeUsage.totalInputTokens += usage.inputTokens;
@@ -296,7 +290,6 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
           toolsUsed: [...new Set(toolsUsed)],
           usage,
           model: activeModel || config.claudeModel,
-          hitMaxTurns,
         };
       } catch (error) {
         // Handle abort gracefully

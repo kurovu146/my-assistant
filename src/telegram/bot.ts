@@ -177,9 +177,6 @@ async function safeSendMessage(ctx: Context, text: string): Promise<void> {
 // - Error handling + cleanup
 // ============================================================
 
-// Max số lần auto-continue khi bị hết turns giữa chừng
-const MAX_AUTO_CONTINUES = 5;
-
 interface StreamingOptions {
   /** Prompt gửi cho Claude */
   prompt: string;
@@ -199,8 +196,6 @@ interface StreamingOptions {
   onComplete?: () => Promise<void>;
   /** Model override từ user (Smart Routing) */
   modelOverride?: string;
-  /** Số lần auto-continue đã thực hiện (internal) */
-  _continueCount?: number;
 }
 
 async function handleQueryWithStreaming(options: StreamingOptions): Promise<void> {
@@ -361,38 +356,6 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
     // Gửi phần còn lại
     for (let i = 1; i < messages.length; i++) {
       await safeSendMessage(ctx, messages[i]!);
-    }
-
-    // Auto-continue: khi bị hết maxTurns giữa chừng task → tự resume
-    const continueCount = options._continueCount || 0;
-    if (response.hitMaxTurns && response.sessionId && continueCount < MAX_AUTO_CONTINUES) {
-      logger.log(`🔄 Auto-continue (${continueCount + 1}/${MAX_AUTO_CONTINUES}) — resuming session ${response.sessionId}`);
-      const continueMsg = await ctx.reply("🔄 Đang tiếp tục xử lý...");
-
-      // Cleanup current query state trước khi continue
-      clearInterval(typingInterval);
-      activeQueries.delete(userId);
-
-      // Lưu session nếu chưa có
-      if (!session && response.sessionId) {
-        createSession(userId, response.sessionId, sessionTitle, response.model || selectedModel);
-      }
-
-      // Gọi tiếp với session hiện tại.
-      // KHÔNG truyền onComplete: file tạm phải sống hết chuỗi continue,
-      // finally của lượt này sẽ dọn sau khi recursion kết thúc.
-      await handleQueryWithStreaming({
-        prompt: "Tiếp tục task đang dở. Xem lại todo list và hoàn thành các phần còn lại.",
-        userId,
-        ctx,
-        chatId,
-        messageId: continueMsg.message_id,
-        sessionTitle,
-        errorLabel,
-        modelOverride,
-        _continueCount: continueCount + 1,
-      });
-      return; // Skip extractFacts — lượt cuối của chuỗi continue đã làm
     }
 
     // Tier 1: Extract facts từ conversation (async, không block UX)
