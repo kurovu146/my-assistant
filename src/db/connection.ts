@@ -100,6 +100,52 @@ addColumnIfMissing("query_logs", "cache_creation_tokens", "INTEGER NOT NULL DEFA
 // Vector của fact — BLOB f32 little-endian, cùng định dạng với bản Rust (memory-assistant)
 addColumnIfMissing("memory_facts", "embedding", "BLOB");
 
+// --- Multi-project ---
+
+addColumnIfMissing("sessions", "project", "TEXT NOT NULL DEFAULT ''");
+// Nullable CÓ CHỦ Ý: NULL nghĩa là "fact chung, đúng cho mọi project",
+// khác hẳn chuỗi rỗng của sessions (nghĩa là "chưa chọn project").
+addColumnIfMissing("memory_facts", "project", "TEXT");
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS projects (
+    name TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER NOT NULL
+  )
+`);
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS current_project (
+    user_id INTEGER PRIMARY KEY,
+    project TEXT NOT NULL
+  )
+`);
+
+// active_sessions phải đổi PRIMARY KEY từ (user_id) sang (user_id, project).
+// SQLite không ALTER được PK nên phải tạo bảng mới rồi đổi tên. Chỉ chạy khi
+// bảng cũ chưa có cột project, nhờ vậy restart nhiều lần không lặp.
+const activeCols = db.query(`PRAGMA table_info(active_sessions)`).all() as { name: string }[];
+if (activeCols.length > 0 && !activeCols.some((c) => c.name === "project")) {
+  db.transaction(() => {
+    db.run(`
+      CREATE TABLE active_sessions_v2 (
+        user_id INTEGER NOT NULL,
+        project TEXT NOT NULL DEFAULT '',
+        session_id TEXT NOT NULL,
+        PRIMARY KEY (user_id, project)
+      )
+    `);
+    db.run(
+      `INSERT OR IGNORE INTO active_sessions_v2 (user_id, project, session_id)
+       SELECT user_id, '', session_id FROM active_sessions`,
+    );
+    db.run(`DROP TABLE active_sessions`);
+    db.run(`ALTER TABLE active_sessions_v2 RENAME TO active_sessions`);
+  })();
+}
+
 // --- Semantic layer ---
 
 db.run(`

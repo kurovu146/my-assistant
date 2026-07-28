@@ -91,6 +91,42 @@ test("resolveProjectPath mặc định dùng config.claudeWorkingDir khi không 
   expect(missing).toEqual({ path: config.claudeWorkingDir, exists: false });
 });
 
+// --- Multi-project: schema migration ---
+
+test("migration tạo đủ bảng và cột cho multi-project", () => {
+  const cols = (t: string) =>
+    (db.query(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name);
+
+  expect(cols("sessions")).toContain("project");
+  expect(cols("memory_facts")).toContain("project");
+  expect(cols("projects")).toEqual(
+    expect.arrayContaining(["name", "path", "created_at", "last_used_at"]),
+  );
+  expect(cols("current_project")).toEqual(expect.arrayContaining(["user_id", "project"]));
+
+  // active_sessions phải khoá theo CẶP, nếu không mỗi user vẫn chỉ giữ được 1 phiên
+  const pk = (db.query(`PRAGMA table_info(active_sessions)`).all() as { name: string; pk: number }[])
+    .filter((c) => c.pk > 0)
+    .map((c) => c.name)
+    .sort();
+  expect(pk).toEqual(["project", "user_id"]);
+});
+
+test("hai project giữ được hai phiên cùng lúc", () => {
+  db.run(`INSERT OR REPLACE INTO active_sessions (user_id, project, session_id) VALUES (?, ?, ?)`,
+    [900, "alpha", "sess-alpha"]);
+  db.run(`INSERT OR REPLACE INTO active_sessions (user_id, project, session_id) VALUES (?, ?, ?)`,
+    [900, "beta", "sess-beta"]);
+
+  const rows = db.query(`SELECT project, session_id FROM active_sessions WHERE user_id = ? ORDER BY project`)
+    .all(900) as { project: string; session_id: string }[];
+
+  expect(rows).toEqual([
+    { project: "alpha", session_id: "sess-alpha" },
+    { project: "beta", session_id: "sess-beta" },
+  ]);
+});
+
 // --- FTS5: keyword thô từng làm memory_search ném lỗi cú pháp ---
 
 test("toFtsQuery làm keyword thô chạy được trên FTS5 MATCH", () => {
