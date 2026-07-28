@@ -274,6 +274,13 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
 
           switch (message.type) {
             case "assistant": {
+              // Model có thể suy nghĩ hàng chục giây trước khi ra chữ đầu (đo được:
+              // thinking ở giây 41, text ở giây 86). Không báo gì trong khoảng đó thì
+              // Telegram đứng nguyên "Đang xử lý..." và anh Tuấn tưởng bot treo.
+              if (hasThinking(message)) {
+                onProgress?.({ type: "thinking", content: "" });
+              }
+
               const text = extractText(message);
               if (text) {
                 textParts.push(text);
@@ -456,6 +463,11 @@ function extractText(message: SDKMessage): string {
     .filter((block: any) => block.type === "text")
     .map((block: any) => block.text)
     .join("");
+}
+
+function hasThinking(message: SDKMessage): boolean {
+  if (message.type !== "assistant" || !message.message?.content) return false;
+  return message.message.content.some((block: any) => block.type === "thinking");
 }
 
 function extractToolUse(message: SDKMessage): string[] {

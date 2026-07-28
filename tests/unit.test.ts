@@ -1147,6 +1147,38 @@ test("query() chạy trong thư mục của project đang mở", async () => {
   expect(captured?.cwd).toBe("/tmp/duan");
 });
 
+test("model suy nghĩ thì báo tiến trình, không để màn hình đứng im", async () => {
+  // Đo thật: model có thể thinking 40-86 giây trước khi ra chữ đầu tiên. Trong
+  // khoảng đó SDK vẫn gửi message, nhưng nếu provider chỉ bắt text và tool thì
+  // Telegram đứng nguyên "Đang xử lý..." và người dùng tưởng bot treo rồi /stop.
+  mock.module("@anthropic-ai/claude-agent-sdk", () => ({
+    query: () =>
+      (async function* () {
+        yield {
+          type: "assistant",
+          message: { content: [{ type: "thinking", thinking: "cân nhắc các phương án..." }] },
+        };
+        yield {
+          type: "assistant",
+          message: { content: [{ type: "text", text: "Xong" }] },
+        };
+        yield { type: "result", subtype: "success", result: "Xong", session_id: "s" };
+      })(),
+  }));
+
+  const updates: string[] = [];
+  const { ClaudeProvider } = await import("../src/claude/provider.ts");
+  await new ClaudeProvider().query({
+    prompt: "x",
+    userId: 1,
+    onProgress: (u) => updates.push(u.type),
+  });
+
+  expect(updates).toContain("thinking");
+  // thinking phải tới TRƯỚC text, đúng thứ tự model sinh ra
+  expect(updates.indexOf("thinking")).toBeLessThan(updates.indexOf("text_chunk"));
+});
+
 test("phiên không nối lại được thì bỏ phiên chết và chạy tiếp, không kẹt lỗi mãi", async () => {
   // SDK lưu transcript theo cwd. Khi cwd lệch (hoặc transcript bị xoá) nó ném
   // "No conversation found" — lỗi này KHÔNG tự khỏi: session id chết vẫn nằm trong

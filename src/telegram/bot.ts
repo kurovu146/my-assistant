@@ -320,6 +320,7 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
   let lastEditTime = 0;
   let editPending = false;
   let currentTool = ""; // tool đang chạy (hiển thị trong progress)
+  let isThinking = false; // model đang suy nghĩ (có thể kéo dài hàng chục giây)
 
   // Flush streaming text vào progress message (throttled)
   const flushStream = async (force = false) => {
@@ -338,15 +339,23 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
     if (currentTool) {
       const icon = TOOL_ICONS[currentTool] || "🔧";
       suffix = `\n\n⏳ ${icon} _Đang dùng ${currentTool}..._`;
+    } else if (isThinking) {
+      suffix = "\n\n🤔 _Đang suy nghĩ..._";
     } else {
       suffix = "\n\n⏳ _Đang xử lý..._";
     }
+
+    const idle = currentTool
+      ? `${TOOL_ICONS[currentTool] || "🔧"} Đang dùng ${currentTool}...`
+      : isThinking
+        ? "🤔 Đang suy nghĩ..."
+        : "⏳ Đang xử lý...";
 
     const displayText = preview
       ? (preview.length > 3800
           ? preview.slice(0, 3800) + "\n\n⏳ _Đang tiếp tục..._"
           : preview + suffix)
-      : `⏳${currentTool ? ` ${TOOL_ICONS[currentTool] || "🔧"} Đang dùng ${currentTool}...` : " Đang xử lý..."}`;
+      : idle;
 
     await safeEditText(ctx.api, chatId, messageId, displayText, "Markdown");
     editPending = false;
@@ -373,7 +382,11 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
           flushStream().catch(() => {});
         } else if (update.type === "tool_use") {
           currentTool = update.content;
+          isThinking = false;
           // Luôn flush khi có tool mới (dù đã có text hay chưa)
+          flushStream().catch(() => {});
+        } else if (update.type === "thinking") {
+          isThinking = true;
           flushStream().catch(() => {});
         }
       },
