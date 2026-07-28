@@ -3,7 +3,7 @@
 // Cô lập môi trường (DB :memory:, tắt Voyage) nằm ở tests/setup.ts — preload qua
 // bunfig.toml. Đặt ở đây không có tác dụng vì `import` được hoist lên trước.
 
-import { expect, mock, test } from "bun:test";
+import { expect, mock, spyOn, test } from "bun:test";
 import { resolve, join } from "path";
 import { tmpdir } from "os";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
@@ -201,6 +201,36 @@ test("cwd của query lấy từ path đã chốt, không phân giải lại the
 
     expect(resolveQueryCwd("")).toBeUndefined(); // chưa chọn project → thư mục gốc
     expect(resolveQueryCwd("khong-ton-tai-abc")).toBeUndefined();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("resolveQueryCwd lùi về thư mục gốc khi thư mục đã chốt bị xoá sau đó", () => {
+  // Review R-1: trước bản vá này, resolveQueryCwd đưa thẳng path đã chết cho SDK
+  // → SDK không spawn được process, ném lỗi hoàn toàn không liên quan (libc/binary
+  // mismatch) mà lưới an toàn isSessionNotFoundError/isRetryableError không khớp
+  // được — bot kẹt cứng vĩnh viễn cho project đó. Agent có Bash bypassPermissions
+  // ngay trong thư mục này nên tự xoá được thư mục của chính mình.
+  const root = mkdtempSync(join(tmpdir(), "myasst-cwd-xoa-"));
+  const projectDir = join(root, "sap-bi-xoa");
+  mkdirSync(projectDir);
+
+  try {
+    ensureProject("sap-bi-xoa", root); // thư mục đã có lúc tạo → path chốt = projectDir
+    expect(getProjectCwd("sap-bi-xoa")).toBe(projectDir);
+
+    rmSync(projectDir, { recursive: true, force: true }); // agent (hoặc ai đó) xoá mất
+
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      // Không được trả về đường dẫn đã chết — phải lùi về config.claudeWorkingDir (undefined)
+      expect(resolveQueryCwd("sap-bi-xoa")).toBeUndefined();
+      // Phải để lại dấu vết điều tra, không được lùi trong im lặng
+      expect(errSpy).toHaveBeenCalled();
+    } finally {
+      errSpy.mockRestore();
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

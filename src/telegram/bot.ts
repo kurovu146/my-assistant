@@ -3,6 +3,7 @@
 // Telegram Bot — Xử lý tin nhắn và kết nối với Claude
 // ============================================================
 
+import { statSync } from "fs";
 import { Bot, type Api, type Context, type Filter } from "grammy";
 import { config } from "../config.ts";
 import { getClaudeProvider } from "../claude/provider.ts";
@@ -83,9 +84,34 @@ export function persistSession(
  * Lấy từ đường dẫn đã chốt trong registry, KHÔNG phân giải lại từ tên project:
  * Claude Agent SDK lưu transcript theo cwd nên cwd đổi giữa chừng là phiên chết
  * (xem ensureProject). `undefined` = dùng config.claudeWorkingDir.
+ *
+ * Nhưng thư mục đã chốt có thể biến mất SAU khi chốt (bị xoá/đổi tên thủ công,
+ * hoặc bởi chính agent — nó chạy Bash bypassPermissions ngay trong đó). Đưa thẳng
+ * một đường dẫn chết cho SDK làm nó không spawn được process và ném một lỗi
+ * hoàn toàn không liên quan (kiểu libc/binary mismatch) mà lưới an toàn
+ * `isSessionNotFoundError`/`isRetryableError` không khớp — bot kẹt cứng vĩnh viễn
+ * cho project đó, không có đường tự phục hồi vì `projects.path` write-once. Nên
+ * phải kiểm thư mục còn thật sự tồn tại NGAY LÚC CHẠY và lùi về thư mục gốc nếu
+ * không — không được ghi đè `projects.path` (giữ nguyên tính đóng băng).
  */
 export function resolveQueryCwd(project: string): string | undefined {
-  return project ? (getProjectCwd(project) ?? undefined) : undefined;
+  if (!project) return undefined;
+  const cwd = getProjectCwd(project);
+  if (!cwd) return undefined;
+
+  try {
+    if (statSync(cwd).isDirectory()) return cwd;
+  } catch {
+    // ENOENT hoặc không có quyền đọc — coi như thư mục đã mất.
+  }
+
+  // Lùi cwd cũng là đổi cwd: phiên đang treo của project này (nếu có) sẽ không
+  // resume được nữa, nhưng đó là lưới an toàn F-1 phần B (isSessionNotFoundError)
+  // đã lo — không cần cơ chế dọn thứ hai ở đây.
+  logger.error(
+    `⚠️ Thư mục đã chốt của project "${project}" không còn tồn tại (${cwd}) — lùi về ${config.claudeWorkingDir}`,
+  );
+  return undefined;
 }
 
 /**
