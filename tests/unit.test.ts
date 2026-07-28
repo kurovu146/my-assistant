@@ -1152,6 +1152,66 @@ test("phiên không nối lại được thì bỏ phiên chết và chạy ti�
   expect(getActiveSession(userId, "alpha")?.sessionId).toBe("phien-alpha");
 });
 
+test("dọn active_sessions phải chạy dù 'không nối lại được' xảy ra đúng lượt thử cuối", async () => {
+  // R-4: điều kiện `attempt < MAX_RETRIES` từng bọc luôn cả phần dọn DB, không chỉ
+  // phần continue. Nếu "no conversation found" chỉ xảy ra ở đúng lượt thử CUỐI
+  // (sau vài lần lỗi retryable giữ nguyên resumeSessionId, không đi qua nhánh dọn
+  // sớm hơn) thì lỗi rơi xuống nhánh trả lỗi chung MÀ session chết vẫn còn trong
+  // active_sessions — kẹt lại y hệt trạng thái mà chính nhánh này sinh ra để sửa.
+  //
+  // Import trước khi mock.module SDK: MAX_RETRIES là hằng số thuần, không phụ
+  // thuộc SDK, và mock.module thay live binding nên gọi sau vẫn có tác dụng khi
+  // ClaudeProvider().query() thực sự chạy bên dưới.
+  const { ClaudeProvider, MAX_RETRIES } = await import("../src/claude/provider.ts");
+
+  const resumes: (string | undefined)[] = [];
+  let call = 0;
+  mock.module("@anthropic-ai/claude-agent-sdk", () => ({
+    query: ({ options }: { options: Record<string, unknown> }) => {
+      resumes.push(options.resume as string | undefined);
+      call++;
+      // MAX_RETRIES lần đầu: lỗi retryable (không đụng resumeSessionId) để đẩy tới
+      // đúng lượt thử cuối mà resume vẫn còn sống. Lượt cuối cùng mới là lỗi
+      // "session chết" cần lưới an toàn xử lý.
+      if (call <= MAX_RETRIES) {
+        throw new Error("503 Service Unavailable");
+      }
+      throw new Error("No conversation found with session ID: phien-chet-cuoi");
+    },
+  }));
+
+  const userId = 931;
+  ensureProject("ketoan-cuoi");
+  createSession(userId, "ketoan-cuoi", "phien-chet-cuoi", "phiên cũ");
+
+  // Backoff thật cộng dồn nhiều giây — test chỉ cần continue chạy lại ngay,
+  // không cần thời gian trôi qua thật. Khôi phục lại ở finally.
+  const realSetTimeout = globalThis.setTimeout;
+  (globalThis as any).setTimeout = (fn: () => void) => {
+    fn();
+    return 0;
+  };
+
+  try {
+    const res = await new ClaudeProvider().query({
+      prompt: "tiếp tục giúp anh",
+      sessionId: "phien-chet-cuoi",
+      userId,
+      project: "ketoan-cuoi",
+    });
+
+    expect(res.error).toBeDefined();
+    // resume không đổi qua các lượt retryable — chứng minh kịch bản đúng ý: lỗi
+    // "session chết" chỉ xảy ra lần đầu ở đúng lượt thử cuối, không phải do đã bị
+    // dọn từ trước.
+    expect(resumes).toEqual(Array(MAX_RETRIES + 1).fill("phien-chet-cuoi"));
+    // Đây là chỗ review bắt lỗi: dọn DB không được phụ thuộc vào việc còn lượt thử hay không
+    expect(getActiveSession(userId, "ketoan-cuoi")).toBeNull();
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+});
+
 // --- extractFacts: thiếu scope phải rơi vào project hiện tại, không thành fact chung ---
 // Đặt cuối file, sau mọi test cần provider.ts thật.
 

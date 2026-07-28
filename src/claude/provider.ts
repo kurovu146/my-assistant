@@ -53,7 +53,9 @@ const auditBashHook = {
 
 // --- Retry with backoff + model failover ---
 
-const MAX_RETRIES = 3;
+// Export cho test: R-4 cần dựng đúng kịch bản "lỗi xảy ra ở lượt thử cuối" mà
+// không hardcode trùng lặp con số này ở hai nơi.
+export const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 2000;
 const MAX_DELAY_MS = 30_000;
 
@@ -322,23 +324,33 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
           };
         }
 
-        // Lưới an toàn: phiên cũ không nối lại được thì bỏ nó và chạy lại như phiên
-        // mới. Không có nhánh này, lỗi nổi thẳng lên user MÀ session id đã chết vẫn
-        // nằm nguyên trong active_sessions (lỗi ném ra trước nhánh tạo phiên mới) —
-        // nên mọi tin nhắn sau đều lỗi y hệt, mãi mãi, không có đường tự thoát.
-        // Đánh đổi: user mất mạch của phiên đó, nhưng bot tiếp tục hoạt động.
-        if (isSessionNotFoundError(error) && resumeSessionId && attempt < MAX_RETRIES) {
-          logger.log(`⚠️ Không nối lại được phiên ${resumeSessionId} — mở phiên mới`);
+        // Lưới an toàn: phiên cũ không nối lại được thì bỏ nó. Không có nhánh này,
+        // lỗi nổi thẳng lên user MÀ session id đã chết vẫn nằm nguyên trong
+        // active_sessions (lỗi ném ra trước nhánh tạo phiên mới) — nên mọi tin nhắn
+        // sau đều lỗi y hệt, mãi mãi, không có đường tự thoát.
+        //
+        // Dọn active_sessions phải chạy VÔ ĐIỀU KIỆN khi nhận diện được lỗi này —
+        // kể cả khi đây đã là lượt thử cuối (attempt === MAX_RETRIES). Trước đây
+        // điều kiện `attempt < MAX_RETRIES` bọc luôn cả phần dọn, nên đúng lượt
+        // cuối thì lỗi rơi xuống nhánh trả lỗi chung MÀ session chết vẫn còn trong
+        // DB — kẹt lại y hệt bug mà nhánh này sinh ra để sửa. Chỉ có `continue`
+        // (chạy lại như phiên mới) mới cần gác theo số lần thử còn lại.
+        if (isSessionNotFoundError(error) && resumeSessionId) {
+          logger.log(`⚠️ Không nối lại được phiên ${resumeSessionId} — bỏ phiên chết`);
           if (userId !== undefined) clearActiveSession(userId, project ?? "");
           resumeSessionId = "";
-          onProgress?.({
-            type: "text_chunk",
-            content: "\n⚠️ Phiên cũ không nối lại được, đã mở phiên mới.\n",
-          });
           toolsUsed.length = 0;
           textParts.length = 0;
           resolvedSessionId = "";
-          continue;
+
+          if (attempt < MAX_RETRIES) {
+            onProgress?.({
+              type: "text_chunk",
+              content: "\n⚠️ Phiên cũ không nối lại được, đã mở phiên mới.\n",
+            });
+            continue;
+          }
+          // Hết lượt thử — rơi xuống nhánh trả lỗi chung bên dưới, nhưng DB đã sạch.
         }
 
         // Retry with backoff + model failover
