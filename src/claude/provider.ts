@@ -176,7 +176,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
   // --- Main query ---
 
   async query(options: AgentQueryOptions): Promise<AgentResponse> {
-    const { prompt, sessionId, onProgress, abortSignal, userId, modelOverride } = options;
+    const { prompt, sessionId, onProgress, abortSignal, userId, modelOverride, cwd } = options;
     const toolsUsed: string[] = [];
     const textParts: string[] = [];
     let resolvedSessionId = sessionId || "";
@@ -212,7 +212,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
                   },
                 }
               : {}),
-            cwd: config.claudeWorkingDir,
+            cwd: cwd || config.claudeWorkingDir,
             mcpServers: {
               ...(this.gmailMcp ? { gmail: this.gmailMcp } : {}),
               ...(this.sheetsMcp ? { sheets: this.sheetsMcp } : {}),

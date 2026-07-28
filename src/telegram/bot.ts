@@ -8,7 +8,7 @@ import { config } from "../config.ts";
 import { getClaudeProvider } from "../claude/provider.ts";
 import { parseModelOverride, resolveModelTier } from "../claude/router.ts";
 import { getActiveSession, createSession, touchSession } from "../db/sessions.ts";
-import { getCurrentProject } from "../db/projects.ts";
+import { getCurrentProject, resolveProjectPath } from "../db/projects.ts";
 import { logQuery } from "../db/queries.ts";
 import { splitMessage, formatUsageTotal, TOOL_ICONS } from "./formatter.ts";
 import { sanitizeResponse } from "./content-filter.ts";
@@ -289,6 +289,7 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
       abortSignal: controller.signal,
       userId,
       modelOverride: selectedModel,
+      cwd: project ? resolveProjectPath(project).path : undefined,
     });
 
     // Clear typing

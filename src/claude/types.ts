@@ -43,6 +43,8 @@ export interface AgentQueryOptions {
   abortSignal?: AbortSignal;
   userId?: number;
   modelOverride?: string;
+  /** Thư mục làm việc của agent; không truyền thì dùng config.claudeWorkingDir */
+  cwd?: string;
 }
 
 export interface CompletionOptions {

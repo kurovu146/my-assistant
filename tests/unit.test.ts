@@ -692,3 +692,22 @@ test("consolidation embed và liên kết fact vừa gộp", async () => {
   // Phải embed đúng fact MỚI, không phải fact vừa bị xóa
   expect(deleteIds).not.toContain(embedCalls[0]!.factId);
 });
+
+// --- Agent chạy trong thư mục của project ---
+
+test("query() chạy trong thư mục của project đang mở", async () => {
+  let captured: Record<string, unknown> | undefined;
+  mock.module("@anthropic-ai/claude-agent-sdk", () => ({
+    query: ({ options }: { options: Record<string, unknown> }) => {
+      captured = options;
+      return (async function* () {
+        yield { type: "result", subtype: "success", result: "ok", session_id: "s" };
+      })();
+    },
+  }));
+
+  const { ClaudeProvider } = await import("../src/claude/provider.ts");
+  await new ClaudeProvider().query({ prompt: "x", userId: 1, cwd: "/tmp/duan" });
+
+  expect(captured?.cwd).toBe("/tmp/duan");
+});
