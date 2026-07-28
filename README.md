@@ -183,6 +183,7 @@ làm việc khác rồi quay lại thì mạch cũ vẫn còn.
 - `/p` — xem project đang có
 - `/p <tên>` — chuyển sang project, tự tạo nếu chưa có
 - Thư mục làm việc là `~/dev/<tên>` nếu tồn tại, không thì lùi về `CLAUDE_WORKING_DIR`
+- Dấu ⚠️ cạnh project name = thư mục riêng không tồn tại; agent chạy trong `CLAUDE_WORKING_DIR`
 - Memory chia hai loại: fact chung (sở thích, thói quen) theo anh khắp nơi; fact riêng
   (stack, kiến trúc) chỉ hiện ở đúng project của nó
 
@@ -191,7 +192,7 @@ làm việc khác rồi quay lại thì mạch cũ vẫn còn.
 **Tier 1 (Passive)** — Tự động extract facts sau mỗi hội thoại, inject vào prompt khi cần.
 
 **Tier 2 (Active)** — Claude dùng MCP tools để đọc/ghi:
-- `memory_save` — lưu fact mới (tự embed + liên kết fact tương tự)
+- `memory_save` — lưu fact mới (tự embed + liên kết fact tương tự); `scope` mặc định `project` (không lẫn qua project khác)
 - `memory_search` — tìm kiếm lai FTS5 + vector, trả kèm fact liên quan
 - `memory_list` — xem tất cả facts
 - `memory_delete` — xóa fact cũ/sai

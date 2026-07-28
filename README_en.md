@@ -183,6 +183,7 @@ Each project keeps its own conversation session, so leaving `funlife` mid-task f
 - `/p` — list projects
 - `/p <name>` — switch to a project, creating it on first use
 - Working directory is `~/dev/<name>` when it exists, otherwise `CLAUDE_WORKING_DIR`
+- ⚠️ next to a project name means its directory doesn't exist; agent runs in `CLAUDE_WORKING_DIR` instead
 - Memory splits in two: global facts (preferences, habits) follow you everywhere; project
   facts (stack, architecture) only surface in their own project
 
@@ -191,7 +192,7 @@ Each project keeps its own conversation session, so leaving `funlife` mid-task f
 **Tier 1 (Passive)** — Automatically extracts facts after each conversation, injected into the prompt as needed.
 
 **Tier 2 (Active)** — Claude uses MCP tools to read/write:
-- `memory_save` — save a new fact (auto-embeds and links similar facts)
+- `memory_save` — save a new fact (auto-embeds and links similar facts); `scope` defaults to `project` (isolated per project)
 - `memory_search` — hybrid FTS5 + vector search, returns related facts alongside
 - `memory_list` — view all facts
 - `memory_delete` — delete outdated/incorrect facts
