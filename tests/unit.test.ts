@@ -10,7 +10,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
 import { formatTokenCount, formatUsageTotal, splitMessage } from "../src/telegram/formatter.ts";
 import { parseModelOverride, resolveModelTier } from "../src/claude/router.ts";
 import { filterSensitiveContent } from "../src/telegram/content-filter.ts";
-import { saveFact, searchFacts, toFtsQuery } from "../src/memory/repository.ts";
+import { saveFact, searchFacts, getUserFacts, toFtsQuery } from "../src/memory/repository.ts";
 import { getUsageByPeriod, logQuery, type QueryLogEntry } from "../src/db/queries.ts";
 import { db } from "../src/db/connection.ts";
 import { config } from "../src/config.ts";
@@ -317,6 +317,32 @@ test("searchFacts vẫn tìm được fact với keyword thường", () => {
 
   expect(searchFacts(1, "Godot").length).toBeGreaterThan(0);
   expect(() => searchFacts(1, "email: tuan")).not.toThrow();
+});
+
+// --- Memory lọc theo project: fact chung theo anh khắp nơi, fact riêng ở đúng project ---
+
+test("memory chung theo anh khắp nơi, memory riêng ở đúng project", () => {
+  saveFact(920, "Anh dùng Bun thay Node", "preference", "test", null);
+  saveFact(920, "Project alpha dùng Next.js 16", "stack", "test", "alpha");
+  saveFact(920, "Project beta dùng Go", "stack", "test", "beta");
+
+  const inAlpha = getUserFacts(920, 50, "alpha").map((f) => f.fact);
+  expect(inAlpha).toContain("Anh dùng Bun thay Node");
+  expect(inAlpha).toContain("Project alpha dùng Next.js 16");
+  expect(inAlpha).not.toContain("Project beta dùng Go"); // không được rò
+
+  const inBeta = getUserFacts(920, 50, "beta").map((f) => f.fact);
+  expect(inBeta).toContain("Anh dùng Bun thay Node");
+  expect(inBeta).not.toContain("Project alpha dùng Next.js 16");
+});
+
+test("searchFacts cũng chặn fact của project khác", () => {
+  saveFact(921, "Alpha deploy bằng Vercel", "infra", "test", "alpha");
+  saveFact(921, "Beta deploy bằng PM2", "infra", "test", "beta");
+
+  const hits = searchFacts(921, "deploy", 20, "alpha").map((f) => f.fact);
+  expect(hits).toContain("Alpha deploy bằng Vercel");
+  expect(hits).not.toContain("Beta deploy bằng PM2");
 });
 
 // --- Whitelist fail-closed: bot chạy shell nên không được mở mặc định ---
@@ -772,4 +798,26 @@ test("query() chạy trong thư mục của project đang mở", async () => {
   await new ClaudeProvider().query({ prompt: "x", userId: 1, cwd: "/tmp/duan" });
 
   expect(captured?.cwd).toBe("/tmp/duan");
+});
+
+// --- extractFacts: thiếu scope phải rơi vào project hiện tại, không thành fact chung ---
+// Đặt cuối file, sau mọi test cần provider.ts thật.
+
+test("fact thiếu scope rơi vào project hiện tại, không thành fact chung", async () => {
+  // Model quên trả "scope" là chuyện thường. Mặc định phải là hẹp: một fact riêng
+  // bị đánh dấu chung sẽ chen vào ngữ cảnh của MỌI project khác.
+  mock.module("../src/claude/provider.ts", () => ({
+    getClaudeProvider: () => ({
+      complete: async () => JSON.stringify([{ fact: "Dự án này chạy trên Deno", category: "stack" }]),
+    }),
+  }));
+
+  const { extractFacts } = await import("../src/memory/extraction.ts");
+  await extractFacts(922, "mình dùng Deno cho dự án này nhé", "Vâng em ghi nhớ ạ", "gamma");
+
+  const row = db
+    .query(`SELECT project FROM memory_facts WHERE user_id = ? AND fact LIKE '%Deno%'`)
+    .get(922) as { project: string | null } | undefined;
+
+  expect(row?.project).toBe("gamma");
 });

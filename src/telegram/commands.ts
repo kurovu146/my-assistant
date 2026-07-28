@@ -412,7 +412,9 @@ export async function handleMemory(ctx: Context): Promise<void> {
   if (userId === undefined) return;
 
   const total = countFacts(userId);
-  const facts = getUserFacts(userId, 20);
+  // countFacts vẫn đếm toàn bộ (mọi project) — chỉ danh sách hiển thị bên dưới lọc
+  // theo project đang mở, nếu không /memory sẽ chỉ còn thấy fact chung sau task này.
+  const facts = getUserFacts(userId, 20, getCurrentProject(userId));
   const docs = countDocuments(userId);
   const entities = countEntities(userId);
 

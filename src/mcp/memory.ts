@@ -27,6 +27,7 @@ import {
 } from "../memory/repository.ts";
 import { embedAndLinkFact, searchFactsHybrid } from "../memory/semantic.ts";
 import { categoryGuide, CATEGORY_NAMES, FALLBACK_CATEGORY } from "../memory/categories.ts";
+import { getCurrentProject } from "../db/projects.ts";
 
 /**
  * Tạo Memory MCP server cho 1 user cụ thể.
@@ -47,9 +48,23 @@ export function createMemoryMcpServer(userId: number) {
             .enum([...CATEGORY_NAMES, FALLBACK_CATEGORY])
             .default(FALLBACK_CATEGORY)
             .describe("Phân loại thông tin — chọn nhãn sát nghĩa nhất"),
+          scope: z
+            .enum(["project", "global"])
+            .default("project")
+            .describe("global = đúng với mọi dự án; project = chỉ dự án đang mở"),
         },
         async (args) => {
-          const saved = saveFact(userId, args.fact, args.category, "active");
+          // getCurrentProject trả "" khi chưa chọn project — phải đổi thành null
+          // (fact chung) chứ không lưu thẳng "", nếu không fact mồ côi ở project ""
+          // chỉ hiện lại đúng lúc user chưa chọn project nào.
+          const currentProject = getCurrentProject(userId) || null;
+          const saved = saveFact(
+            userId,
+            args.fact,
+            args.category,
+            "active",
+            args.scope === "global" ? null : currentProject,
+          );
           const linked = await embedAndLinkFact(userId, saved.id, args.fact);
 
           let text = `✅ Đã ghi nhớ (ID: ${saved.id}): "${args.fact}" [${args.category}]`;
@@ -72,7 +87,10 @@ export function createMemoryMcpServer(userId: number) {
           limit: z.number().optional().default(10).describe("Số kết quả tối đa"),
         },
         async (args) => {
-          const hits = await searchFactsHybrid(userId, args.keyword, args.limit);
+          // Không truyền project thì mặc định chỉ thấy fact chung — memory_search
+          // phải thấy được cả fact riêng của project đang mở, không thì tool này
+          // "mất trí nhớ" ngay với đúng loại fact user vừa nhờ ghi nhớ.
+          const hits = await searchFactsHybrid(userId, args.keyword, args.limit, getCurrentProject(userId));
 
           if (hits.length === 0) {
             return {
@@ -117,9 +135,12 @@ export function createMemoryMcpServer(userId: number) {
           limit: z.number().optional().default(30).describe("Số kết quả tối đa"),
         },
         async (args) => {
+          // getFactsByCategory chưa lọc theo project (ngoài phạm vi Task 7 — MemoryFact
+          // chưa expose field project để lọc phía JS); nhánh không filter category thì
+          // lọc được ngay bằng getUserFacts.
           const facts = args.category
             ? getFactsByCategory(userId, args.category)
-            : getUserFacts(userId, args.limit);
+            : getUserFacts(userId, args.limit, getCurrentProject(userId));
 
           const total = countFacts(userId);
 

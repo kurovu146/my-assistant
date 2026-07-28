@@ -45,6 +45,8 @@ export interface AgentQueryOptions {
   modelOverride?: string;
   /** Thư mục làm việc của agent; không truyền thì dùng config.claudeWorkingDir */
   cwd?: string;
+  /** Project đang mở của user — dùng để lọc memory fact khi build context (buildMemoryContext) */
+  project?: string;
 }
 
 export interface CompletionOptions {

@@ -21,14 +21,17 @@ Quy tắc:
 - Trả về JSON array, mỗi item: {"fact": "...", "category": "..."}
 - Nếu KHÔNG có gì đáng nhớ, trả về []
 - Tối đa 5 facts mỗi lần
+- Thêm "scope": "global" nếu fact đúng với MỌI dự án (sở thích, thói quen, thông tin cá nhân
+  của anh); "project" nếu chỉ đúng với dự án đang làm (stack, kiến trúc, quyết định cụ thể)
+- Không chắc thì chọn "project"
 
 Categories:
 ${categoryGuide()}
 
 Ví dụ output:
 [
-  {"fact": "Anh thích dùng Bun thay vì Node.js", "category": "preference"},
-  {"fact": "my-assistant chạy trên VPS, quản lý process bằng PM2", "category": "infra"}
+  {"fact": "Anh thích dùng Bun thay vì Node.js", "category": "preference", "scope": "global"},
+  {"fact": "my-assistant chạy trên VPS, quản lý process bằng PM2", "category": "infra", "scope": "project"}
 ]`;
 
 /**
@@ -56,6 +59,9 @@ export async function extractFacts(
   userId: number,
   userMessage: string,
   assistantResponse: string,
+  // "" khi user chưa chọn project — fact thiếu scope khi đó không có project nào
+  // để gắn nên vẫn phải rơi về chung (xem nhánh `project || null` bên dưới).
+  project: string = "",
 ): Promise<void> {
   try {
     // Skip nếu message quá ngắn (chào hỏi, ok, ...)
@@ -82,13 +88,18 @@ export async function extractFacts(
       return; // malformed JSON — skip silently
     }
     if (!Array.isArray(parsed) || parsed.length === 0) return;
-    const facts = parsed as Array<{ fact: string; category: string }>;
+    const facts = parsed as Array<{ fact: string; category: string; scope?: string }>;
 
     // Lưu facts vào DB (kèm embedding + auto-link nếu bật semantic)
     const source = userMessage.slice(0, 50);
     for (const f of facts.slice(0, 5)) {
       if (f.fact && f.fact.length > 5) {
-        const saved = saveFact(userId, f.fact, f.category || FALLBACK_CATEGORY, source);
+        // Model quên trả "scope" là chuyện thường. Mặc định phải là hẹp: một fact
+        // riêng bị đánh dấu chung sẽ chen vào ngữ cảnh của MỌI project khác — nặng
+        // hơn nhiều so với chiều ngược lại (fact chung lỡ gắn nhầm project vẫn còn
+        // tìm lại được qua memory_search).
+        const scope = f.scope === "global" ? null : project || null;
+        const saved = saveFact(userId, f.fact, f.category || FALLBACK_CATEGORY, source, scope);
         await embedAndLinkFact(userId, saved.id, f.fact);
       }
     }
@@ -135,8 +146,8 @@ function scoreFact(fact: MemoryFact): number {
  * Build memory context string để inject vào prompt.
  * Facts được ranked theo relevance score (recency + frequency + decay).
  */
-export function buildMemoryContext(userId: number): string {
-  const facts = getUserFacts(userId, 50);
+export function buildMemoryContext(userId: number, project: string = ""): string {
+  const facts = getUserFacts(userId, 50, project);
   if (facts.length === 0) return "";
 
   // Score and sort

@@ -17,7 +17,14 @@ export interface MemoryFact {
   accessCount: number;
 }
 
-export function saveFact(userId: number, fact: string, category: string = "general", source: string = ""): MemoryFact {
+export function saveFact(
+  userId: number,
+  fact: string,
+  category: string = "general",
+  source: string = "",
+  // null = fact chung, khớp NULL trong cột `project` (nullable có chủ ý, xem connection.ts)
+  project: string | null = null,
+): MemoryFact {
   const now = Date.now();
 
   const existing = db
@@ -33,8 +40,8 @@ export function saveFact(userId: number, fact: string, category: string = "gener
   }
 
   const result = db.run(
-    `INSERT INTO memory_facts (user_id, fact, category, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-    [userId, fact, category, source, now, now],
+    `INSERT INTO memory_facts (user_id, fact, category, source, project, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [userId, fact, category, source, project, now, now],
   );
   return {
     id: Number(result.lastInsertRowid),
@@ -60,7 +67,8 @@ export function toFtsQuery(keyword: string): string {
   return tokens.join(" OR ");
 }
 
-export function searchFacts(userId: number, keyword: string, limit: number = 20): MemoryFact[] {
+// Bỏ trống/"" nghĩa là chỉ lấy fact chung — cùng quy ước với getUserFacts.
+export function searchFacts(userId: number, keyword: string, limit: number = 20, project: string = ""): MemoryFact[] {
   // FTS5 search — lỗi cú pháp bất ngờ vẫn rơi về LIKE bên dưới
   let ftsRows: any[] = [];
   if (keyword.trim()) {
@@ -70,11 +78,11 @@ export function searchFacts(userId: number, keyword: string, limit: number = 20)
           `SELECT m.*, bm25(memory_facts_fts) as rank
            FROM memory_facts_fts fts
            JOIN memory_facts m ON m.id = fts.rowid
-           WHERE memory_facts_fts MATCH ? AND m.user_id = ?
+           WHERE memory_facts_fts MATCH ? AND m.user_id = ? AND (m.project IS NULL OR m.project = ?)
            ORDER BY rank
            LIMIT ?`,
         )
-        .all(toFtsQuery(keyword), userId, limit) as any[];
+        .all(toFtsQuery(keyword), userId, project, limit) as any[];
     } catch {
       ftsRows = [];
     }
@@ -83,16 +91,17 @@ export function searchFacts(userId: number, keyword: string, limit: number = 20)
   if (ftsRows.length > 0) {
     const matchedFacts = ftsRows.map(mapFact);
     touchFactsAccess(matchedFacts.map((f) => f.id));
-    return enrichWithContext(userId, matchedFacts, limit);
+    return enrichWithContext(userId, matchedFacts, limit, project);
   }
 
   // LIKE fallback
   const likeRows = db
     .query(
-      `SELECT * FROM memory_facts WHERE user_id = ? AND (fact LIKE ? OR category LIKE ?)
+      `SELECT * FROM memory_facts
+       WHERE user_id = ? AND (project IS NULL OR project = ?) AND (fact LIKE ? OR category LIKE ?)
        ORDER BY updated_at DESC LIMIT ?`,
     )
-    .all(userId, `%${keyword}%`, `%${keyword}%`, limit) as any[];
+    .all(userId, project, `%${keyword}%`, `%${keyword}%`, limit) as any[];
 
   if (likeRows.length > 0) {
     touchFactsAccess(likeRows.map((r: any) => r.id));
@@ -100,16 +109,20 @@ export function searchFacts(userId: number, keyword: string, limit: number = 20)
   return likeRows.map(mapFact);
 }
 
-function enrichWithContext(userId: number, matchedFacts: MemoryFact[], limit: number): MemoryFact[] {
+function enrichWithContext(userId: number, matchedFacts: MemoryFact[], limit: number, project: string): MemoryFact[] {
   const matchedIds = new Set(matchedFacts.map((f) => f.id));
   const enriched: MemoryFact[] = [...matchedFacts];
 
   const ONE_HOUR = 60 * 60 * 1000;
   // kt: 1 query/seed (bun:sqlite cache prepared statement, DB local nên rẻ)
   //     — gộp bằng window function khi số seed vượt vài chục
+  // Không lọc project ở đây thì fact "hàng xóm" của project khác vẫn len vào kết
+  // quả dù FTS/LIKE đã chặn đúng — láng giềng chọn theo category+thời gian, không
+  // theo project, nên phải tự thêm điều kiện.
   const neighborStmt = db.query(
     `SELECT * FROM memory_facts
      WHERE user_id = ? AND category = ? AND id != ?
+       AND (project IS NULL OR project = ?)
        AND created_at BETWEEN ? AND ?
      ORDER BY ABS(created_at - ?) ASC
      LIMIT 2`,
@@ -117,7 +130,7 @@ function enrichWithContext(userId: number, matchedFacts: MemoryFact[], limit: nu
 
   for (const fact of matchedFacts) {
     const neighbors = neighborStmt.all(
-      userId, fact.category, fact.id,
+      userId, fact.category, fact.id, project,
       fact.createdAt - ONE_HOUR, fact.createdAt + ONE_HOUR, fact.createdAt,
     ) as any[];
 
@@ -132,16 +145,20 @@ function enrichWithContext(userId: number, matchedFacts: MemoryFact[], limit: nu
   return enriched.slice(0, limit);
 }
 
-export function getUserFacts(userId: number, limit: number = 50): MemoryFact[] {
+// Bỏ trống/"" nghĩa là chỉ lấy fact chung (project IS NULL) — KHÔNG giống quy ước
+// của sessions/active_sessions (project="" nghĩa là "chưa chọn project"). Hai bảng
+// dùng hai quy ước khác nhau vì memory_facts cần biểu diễn "đúng với mọi project",
+// còn sessions chỉ cần biểu diễn "chưa gắn project nào".
+export function getUserFacts(userId: number, limit: number = 50, project: string = ""): MemoryFact[] {
   const rows = db
     .query(
-      `SELECT * FROM memory_facts WHERE user_id = ?
+      `SELECT * FROM memory_facts WHERE user_id = ? AND (project IS NULL OR project = ?)
        ORDER BY
          CASE WHEN access_count > 0 THEN 1 ELSE 0 END DESC,
          updated_at DESC
        LIMIT ?`,
     )
-    .all(userId, limit) as any[];
+    .all(userId, project, limit) as any[];
   return rows.map(mapFact);
 }
 
@@ -175,13 +192,28 @@ export interface FactEmbedding {
   embedding: Uint8Array;
 }
 
-export function loadAllFactEmbeddings(userId: number): FactEmbedding[] {
-  const rows = db
-    .query(
-      `SELECT id, fact, category, embedding FROM memory_facts
-       WHERE user_id = ? AND embedding IS NOT NULL`,
-    )
-    .all(userId) as any[];
+/**
+ * `project` để `undefined` (mặc định) → không lọc, giữ nguyên hành vi cho
+ * `embedAndLinkFact`/`backfillFactEmbeddings` (tự liên kết fact tương tự trong
+ * TOÀN BỘ facts của user, không riêng project nào). Chỉ `searchFactsHybrid`
+ * truyền `project` để nhánh vector không lộ fact của project khác.
+ */
+export function loadAllFactEmbeddings(userId: number, project?: string): FactEmbedding[] {
+  const rows = (
+    project === undefined
+      ? db
+          .query(
+            `SELECT id, fact, category, embedding FROM memory_facts
+             WHERE user_id = ? AND embedding IS NOT NULL`,
+          )
+          .all(userId)
+      : db
+          .query(
+            `SELECT id, fact, category, embedding FROM memory_facts
+             WHERE user_id = ? AND (project IS NULL OR project = ?) AND embedding IS NOT NULL`,
+          )
+          .all(userId, project)
+  ) as any[];
   return rows.map((r) => ({
     id: r.id,
     fact: r.fact,

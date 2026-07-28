@@ -176,7 +176,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
   // --- Main query ---
 
   async query(options: AgentQueryOptions): Promise<AgentResponse> {
-    const { prompt, sessionId, onProgress, abortSignal, userId, modelOverride, cwd } = options;
+    const { prompt, sessionId, onProgress, abortSignal, userId, modelOverride, cwd, project } = options;
     const toolsUsed: string[] = [];
     const textParts: string[] = [];
     let resolvedSessionId = sessionId || "";
@@ -189,7 +189,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
         // Inject memory context (Tier 1: passive recall)
         let enrichedPrompt = prompt;
         if (userId) {
-          const memoryContext = buildMemoryContext(userId);
+          const memoryContext = buildMemoryContext(userId, project);
           if (memoryContext) {
             enrichedPrompt = prompt + memoryContext;
           }

@@ -81,12 +81,14 @@ export interface ScoredFact {
  * Tìm fact bằng FTS5 + vector.
  * Không có embedding → trả đúng kết quả FTS5, thứ tự giữ nguyên.
  */
+// Bỏ trống/"" nghĩa là chỉ lấy fact chung — cùng quy ước với getUserFacts/searchFacts.
 export async function searchFactsHybrid(
   userId: number,
   keyword: string,
   limit = 20,
+  project: string = "",
 ): Promise<ScoredFact[]> {
-  const ftsHits = searchFacts(userId, keyword, limit);
+  const ftsHits = searchFacts(userId, keyword, limit, project);
 
   const scores = new Map<number, { fact: MemoryFact; fts: number; vector: number }>();
   ftsHits.forEach((fact, i) => {
@@ -97,7 +99,9 @@ export async function searchFactsHybrid(
   if (client) {
     try {
       const queryVector = await client.embedQuery(keyword);
-      const scored = loadAllFactEmbeddings(userId)
+      // Phải truyền project ở đây — nếu không fact của project khác vẫn lọt vào
+      // qua đường cosine similarity dù nhánh FTS phía trên đã lọc đúng.
+      const scored = loadAllFactEmbeddings(userId, project)
         .map((f) => ({ f, sim: cosineSimilarity(queryVector, bytesToEmbedding(f.embedding)) }))
         .sort((a, b) => b.sim - a.sim)
         .slice(0, VECTOR_CANDIDATES);

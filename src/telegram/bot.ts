@@ -292,6 +292,7 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
       userId,
       modelOverride: selectedModel,
       cwd: project ? resolveProjectPath(project).path : undefined,
+      project,
     });
 
     // Clear typing
@@ -367,7 +368,7 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
 
     // Tier 1: Extract facts từ conversation (async, không block UX)
     if (!response.error) {
-      extractFacts(userId, prompt, response.text).catch((e) => {
+      extractFacts(userId, prompt, response.text, project).catch((e) => {
         logger.error("⚠️ extractFacts error:", e instanceof Error ? e.message : e);
       });
     }
