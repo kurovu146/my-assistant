@@ -195,8 +195,10 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
           }
         }
 
-        // Memory MCP server (Tier 2: active tools) + knowledge base / entity graph
-        const memoryMcp = userId ? createMemoryMcpServer(userId) : null;
+        // Memory MCP server (Tier 2: active tools) + knowledge base / entity graph.
+        // Bind luôn project của query này — tool không được tự tra lại project hiện
+        // tại, xem createMemoryMcpServer.
+        const memoryMcp = userId ? createMemoryMcpServer(userId, project ?? "") : null;
         const knowledgeMcp = userId ? createKnowledgeMcpServer(userId) : null;
 
         const stream = query({

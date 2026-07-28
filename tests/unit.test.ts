@@ -415,6 +415,53 @@ test("countFacts chỉ đếm fact chung + fact của project đang mở", () =>
   expect(countFacts(userId, "beta")).toBe(2); // 1 chung + 1 beta
 });
 
+test("memory tool dùng project đã chốt lúc tạo server, không tra lại giữa query", async () => {
+  // `/p` không nằm trong lane queue → user đổi project được ngay giữa một query dài,
+  // trong khi cwd + memory context của query đó đã chốt từ đầu. Tool phải đi theo
+  // ngữ cảnh của query, không theo con trỏ project mới nhất.
+  const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { createMemoryMcpServer } = await import("../src/mcp/memory.ts");
+
+  const userId = 929;
+  ensureProject("alpha");
+  ensureProject("beta");
+  setCurrentProject(userId, "alpha");
+
+  // Server dựng lúc query bắt đầu — project đang mở khi đó là "alpha"
+  const server = createMemoryMcpServer(userId, getCurrentProject(userId)) as unknown as { instance: any };
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.instance.connect(serverTransport);
+  const client = new Client({ name: "test", version: "1.0.0" });
+  await client.connect(clientTransport);
+
+  try {
+    // Giữa chừng anh Tuấn gõ /p beta
+    setCurrentProject(userId, "beta");
+    saveFact(userId, "Beta xài MySQL", "stack", "test", "beta");
+
+    await client.callTool({
+      name: "memory_save",
+      arguments: { fact: "Alpha xài Postgres", category: "stack", scope: "project" },
+    });
+
+    const row = db
+      .query(`SELECT project FROM memory_facts WHERE user_id = ? AND fact = ?`)
+      .get(userId, "Alpha xài Postgres") as { project: string | null };
+    expect(row.project).toBe("alpha");
+
+    // memory_list cũng phải nhìn bằng con mắt của alpha — không lộ fact của beta
+    const listed = (await client.callTool({ name: "memory_list", arguments: {} })) as {
+      content: { text: string }[];
+    };
+    const text = listed.content.map((c) => c.text).join("");
+    expect(text).toContain("Alpha xài Postgres");
+    expect(text).not.toContain("Beta xài MySQL");
+  } finally {
+    await client.close();
+  }
+});
+
 // --- Whitelist fail-closed: bot chạy shell nên không được mở mặc định ---
 
 async function loadConfigWith(env: Record<string, string>): Promise<number> {

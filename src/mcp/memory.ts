@@ -27,13 +27,20 @@ import {
 } from "../memory/repository.ts";
 import { embedAndLinkFact, searchFactsHybrid } from "../memory/semantic.ts";
 import { categoryGuide, CATEGORY_NAMES, FALLBACK_CATEGORY } from "../memory/categories.ts";
-import { getCurrentProject } from "../db/projects.ts";
 
 /**
  * Tạo Memory MCP server cho 1 user cụ thể.
- * Mỗi query tạo 1 server mới với userId bind sẵn.
+ * Mỗi query tạo 1 server mới với userId + project bind sẵn.
+ *
+ * `project` phải được CHỐT ở đây, không được tra `getCurrentProject` lúc tool chạy:
+ * `/p` không nằm trong lane queue nên user đổi project được ngay giữa một query dài,
+ * trong khi `cwd` và memory context của query đó đã chốt từ lúc bắt đầu. Tra lại lúc
+ * gọi tool sẽ khiến fact lưu vào project mới còn ngữ cảnh vẫn là project cũ — và
+ * `memory_search` trả về fact của project khác.
+ *
+ * Quy ước: "" = chưa chọn project (chỉ thấy fact chung), giống getUserFacts.
  */
-export function createMemoryMcpServer(userId: number) {
+export function createMemoryMcpServer(userId: number, project: string = "") {
   return createSdkMcpServer({
     name: "memory",
     version: "1.0.0",
@@ -54,11 +61,10 @@ export function createMemoryMcpServer(userId: number) {
             .describe("global = đúng với mọi dự án; project = chỉ dự án đang mở"),
         },
         async (args) => {
-          // getCurrentProject trả "" khi chưa chọn project — phải đổi thành null
-          // (fact chung) chứ không lưu thẳng "", nếu không fact mồ côi ở project ""
-          // chỉ hiện lại đúng lúc user chưa chọn project nào.
-          const currentProject = getCurrentProject(userId) || null;
-          const factProject = args.scope === "global" ? null : currentProject;
+          // project là "" khi chưa chọn project — phải đổi thành null (fact chung)
+          // chứ không lưu thẳng "", nếu không fact mồ côi ở project "" chỉ hiện lại
+          // đúng lúc user chưa chọn project nào.
+          const factProject = args.scope === "global" ? null : project || null;
           const saved = saveFact(userId, args.fact, args.category, "active", factProject);
           // Truyền đúng project của fact vừa lưu để embedAndLinkFact không tạo link
           // xuyên project (fact riêng chỉ link với cùng project + fact chung).
@@ -87,7 +93,7 @@ export function createMemoryMcpServer(userId: number) {
           // Không truyền project thì mặc định chỉ thấy fact chung — memory_search
           // phải thấy được cả fact riêng của project đang mở, không thì tool này
           // "mất trí nhớ" ngay với đúng loại fact user vừa nhờ ghi nhớ.
-          const hits = await searchFactsHybrid(userId, args.keyword, args.limit, getCurrentProject(userId));
+          const hits = await searchFactsHybrid(userId, args.keyword, args.limit, project);
 
           if (hits.length === 0) {
             return {
@@ -132,12 +138,11 @@ export function createMemoryMcpServer(userId: number) {
           limit: z.number().optional().default(30).describe("Số kết quả tối đa"),
         },
         async (args) => {
-          const currentProject = getCurrentProject(userId);
           const facts = args.category
-            ? getFactsByCategory(userId, args.category, currentProject)
-            : getUserFacts(userId, args.limit, currentProject);
+            ? getFactsByCategory(userId, args.category, project)
+            : getUserFacts(userId, args.limit, project);
 
-          const total = countFacts(userId, currentProject);
+          const total = countFacts(userId, project);
 
           if (facts.length === 0) {
             return {
