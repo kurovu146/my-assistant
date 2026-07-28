@@ -113,6 +113,42 @@ test("getCurrentProject trả chuỗi rỗng khi user chưa chọn project", () 
   expect(getCurrentProject(901)).toBe("alpha");
 });
 
+test("getCurrentProject trả chuỗi rỗng khi con trỏ mồ côi (project không còn trong bảng projects)", () => {
+  // Chèn thẳng con trỏ trỏ tới tên KHÔNG có trong bảng projects — mô phỏng project
+  // bị xoá sau khi đã được chọn. Task 4/5/6/7 đều dựa vào "" ở nhánh này để lùi về
+  // thư mục gốc thay vì cwd/lọc dữ liệu theo một project ma không còn tồn tại.
+  setCurrentProject(904, "project-da-bi-xoa-abcxyz");
+  expect(getCurrentProject(904)).toBe("");
+});
+
+test("ensureProject phân giải lại path khi thư mục dự án xuất hiện sau lúc đăng ký", () => {
+  // Hermetic — dùng baseDir tuỳ chỉnh (mkdtempSync) thay vì phụ thuộc ~/dev thật,
+  // theo đúng cách resolveProjectPath đã làm ở test phía trên.
+  const root = mkdtempSync(join(tmpdir(), "ensure-project-"));
+  const base = join(root, "base");
+  mkdirSync(base);
+
+  try {
+    // Đăng ký lần đầu khi thư mục thật CHƯA tồn tại → path fallback về baseDir
+    const first = ensureProject("thu-muc-tre", base);
+    expect(first!.project.path).toBe(base);
+
+    // Thư mục xuất hiện sau khi đã đăng ký — ensureProject lần sau phải phân
+    // giải lại, không giữ nguyên path cũ (nếu không /p sẽ hiển thị đường dẫn cũ
+    // trong khi lời gọi resolveProjectPath riêng lại thấy thư mục tồn tại)
+    mkdirSync(join(base, "thu-muc-tre"));
+    const second = ensureProject("thu-muc-tre", base);
+    expect(second!.created).toBe(false);
+    expect(second!.project.path).toBe(join(base, "thu-muc-tre"));
+
+    // DB phải được cập nhật thật, không chỉ object trả về trong bộ nhớ
+    const stored = listProjects().find((p) => p.name === "thu-muc-tre");
+    expect(stored?.path).toBe(join(base, "thu-muc-tre"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("listProjects đếm số phiên của từng project", () => {
   ensureProject("proj-a");
   db.run(

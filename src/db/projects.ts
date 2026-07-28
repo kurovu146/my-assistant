@@ -63,8 +63,16 @@ export interface Project {
   lastUsedAt: number;
 }
 
-/** Tạo project nếu chưa có. Trả null khi tên không hợp lệ. */
-export function ensureProject(rawName: string): { project: Project; created: boolean } | null {
+/**
+ * Tạo project nếu chưa có. Trả null khi tên không hợp lệ.
+ *
+ * `baseDir` mặc định là `config.claudeWorkingDir`, giống `resolveProjectPath` —
+ * tham số này tồn tại để test trỏ vào thư mục tạm thay vì phụ thuộc `~/dev` thật.
+ */
+export function ensureProject(
+  rawName: string,
+  baseDir: string = config.claudeWorkingDir,
+): { project: Project; created: boolean } | null {
   const name = normalizeProjectName(rawName);
   if (!name) return null;
 
@@ -72,14 +80,22 @@ export function ensureProject(rawName: string): { project: Project; created: boo
   const existing = db.query(`SELECT * FROM projects WHERE name = ?`).get(name) as any;
 
   if (existing) {
-    db.run(`UPDATE projects SET last_used_at = ? WHERE name = ?`, [now, name]);
+    // Lần đăng ký đầu có thể xảy ra trước khi thư mục thật được tạo (path khi
+    // đó là fallback về baseDir) — phân giải lại mỗi lần dùng để registry theo
+    // kịp, tránh kẹt với đường dẫn cũ đã sai lệch với thực tế trên đĩa.
+    const { path } = resolveProjectPath(name, baseDir);
+    if (path !== existing.path) {
+      db.run(`UPDATE projects SET path = ?, last_used_at = ? WHERE name = ?`, [path, now, name]);
+    } else {
+      db.run(`UPDATE projects SET last_used_at = ? WHERE name = ?`, [now, name]);
+    }
     return {
-      project: { name, path: existing.path, createdAt: existing.created_at, lastUsedAt: now },
+      project: { name, path, createdAt: existing.created_at, lastUsedAt: now },
       created: false,
     };
   }
 
-  const { path } = resolveProjectPath(name);
+  const { path } = resolveProjectPath(name, baseDir);
   db.run(`INSERT INTO projects (name, path, created_at, last_used_at) VALUES (?, ?, ?, ?)`, [
     name,
     path,
