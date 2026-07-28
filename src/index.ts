@@ -11,7 +11,7 @@
 // 3. Tạo bot và bắt đầu lắng nghe
 // ============================================================
 
-import { createBot } from "./telegram/bot.ts";
+import { createBot, UPLOAD_DIR } from "./telegram/bot.ts";
 import { config } from "./config.ts";
 import { getClaudeProvider } from "./claude/provider.ts";
 import { startMemoryConsolidation, stopMemoryConsolidation } from "./memory/consolidation.ts";
@@ -51,9 +51,9 @@ async function main() {
     process.exit(1);
   }
 
-  // 3. Tạo thư mục uploads nếu chưa có
-  const uploadDir = `${config.claudeWorkingDir}/.telegram-uploads`;
-  await Bun.write(`${uploadDir}/.gitkeep`, "");
+  // 3. Tạo thư mục uploads nếu chưa có (dùng chung hằng số với handler file/ảnh —
+  //    hai nơi lệch nhau thì agent được đưa đường dẫn tới chỗ không ai ghi vào)
+  await Bun.write(`${UPLOAD_DIR}/.gitkeep`, "");
 
   // 4. Tạo bot
   bot = createBot();

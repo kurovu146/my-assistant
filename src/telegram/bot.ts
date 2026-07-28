@@ -44,6 +44,28 @@ function sanitizeFilename(name: string): string {
 }
 
 // ============================================================
+// File/ảnh user gửi lên
+// ============================================================
+
+/** Nơi chứa file user gửi lên — luôn ở thư mục gốc, KHÔNG theo project đang mở. */
+export const UPLOAD_DIR = `${config.claudeWorkingDir}/.telegram-uploads`;
+
+export function uploadPath(fileName: string): string {
+  return `${UPLOAD_DIR}/${fileName}`;
+}
+
+/**
+ * Prompt báo cho agent biết file vừa tải về nằm ở đâu.
+ *
+ * Đường dẫn phải TUYỆT ĐỐI. File luôn được ghi vào thư mục gốc, còn cwd của agent là
+ * thư mục project đang mở — đường dẫn tương đối `.telegram-uploads/x` sẽ trỏ vào
+ * `~/dev/<project>/.telegram-uploads/x`, chỗ không có gì, và agent mở đầu bằng ENOENT.
+ */
+export function buildUploadPrompt(label: string, fileName: string, caption: string): string {
+  return `${label} đã được lưu tại ${uploadPath(fileName)}\n\nYêu cầu: ${caption}`;
+}
+
+// ============================================================
 // Lane Queue — per-user serial queue (inspired by OpenClaw)
 // ============================================================
 // Key: userId (single channel = Telegram)
@@ -458,13 +480,12 @@ async function handleDocument(ctx: Filter<Context, "message:document">): Promise
       }
       const fileBuffer = await fileResponse.arrayBuffer();
 
-      const tempDir = `${config.claudeWorkingDir}/.telegram-uploads`;
-      const tempPath = `${tempDir}/${safeName}`;
+      const tempPath = uploadPath(safeName);
       await Bun.write(tempPath, fileBuffer);
 
       await safeEditText(ctx.api, chatId, msgId, `📄 Đã tải ${safeName}, đang phân tích...`);
 
-      const prompt = `File "${safeName}" đã được lưu tại .telegram-uploads/${safeName}\n\nYêu cầu: ${caption}`;
+      const prompt = buildUploadPrompt(`File "${safeName}"`, safeName, caption);
 
       await handleQueryWithStreaming({
         prompt,
@@ -513,13 +534,12 @@ async function handlePhoto(ctx: Filter<Context, "message:photo">): Promise<void>
       }
       const imgBuffer = await imgResponse.arrayBuffer();
       const fileName = `photo_${Date.now()}.jpg`;
-      const tempDir = `${config.claudeWorkingDir}/.telegram-uploads`;
-      const tempPath = `${tempDir}/${fileName}`;
+      const tempPath = uploadPath(fileName);
       await Bun.write(tempPath, imgBuffer);
 
       await safeEditText(ctx.api, chatId, msgId, "🖼 Đã tải ảnh, đang phân tích...");
 
-      const prompt = `Ảnh đã được lưu tại .telegram-uploads/${fileName}\n\nYêu cầu: ${caption}`;
+      const prompt = buildUploadPrompt("Ảnh", fileName, caption);
 
       await handleQueryWithStreaming({
         prompt,

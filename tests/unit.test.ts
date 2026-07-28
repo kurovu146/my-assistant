@@ -27,6 +27,7 @@ import { config } from "../src/config.ts";
 import { normalizeProjectName, resolveProjectPath, ensureProject, listProjects, getCurrentProject, setCurrentProject } from "../src/db/projects.ts";
 import { getActiveSession, createSession, clearActiveSession, getRecentSessions } from "../src/db/sessions.ts";
 import { formatProjectList, formatSkillList } from "../src/telegram/commands.ts";
+import { buildUploadPrompt, uploadPath } from "../src/telegram/bot.ts";
 import {
   bytesToEmbedding,
   cosineSimilarity,
@@ -459,6 +460,26 @@ test("memory tool dùng project đã chốt lúc tạo server, không tra lại 
     expect(text).not.toContain("Beta xài MySQL");
   } finally {
     await client.close();
+  }
+});
+
+// --- File/ảnh gửi lên: agent phải tìm ra file dù đang chạy trong thư mục project ---
+
+test("prompt file/ảnh dùng đường dẫn tuyệt đối, không phải đường dẫn tương đối theo cwd", () => {
+  // File luôn được ghi vào thư mục gốc, còn cwd của agent là ~/dev/<project> khi
+  // user đang mở project — đường dẫn tương đối trỏ vào <project>/.telegram-uploads,
+  // chỗ không có gì.
+  const filePrompt = buildUploadPrompt('File "bao-cao.pdf"', "bao-cao.pdf", "tóm tắt giúp anh");
+  expect(filePrompt).toContain(uploadPath("bao-cao.pdf"));
+  expect(uploadPath("bao-cao.pdf").startsWith("/")).toBe(true);
+  expect(filePrompt).toContain("tóm tắt giúp anh");
+
+  const photoPrompt = buildUploadPrompt("Ảnh", "photo_1.jpg", "đọc chữ trong ảnh");
+  expect(photoPrompt).toContain(uploadPath("photo_1.jpg"));
+
+  // Không được xuất hiện dạng tương đối "….telegram-uploads/x" đứng một mình
+  for (const p of [filePrompt, photoPrompt]) {
+    expect(p).not.toMatch(/(^|\s)\.telegram-uploads\//);
   }
 });
 
