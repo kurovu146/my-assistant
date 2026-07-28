@@ -12,6 +12,8 @@ import { filterSensitiveContent } from "../src/telegram/content-filter.ts";
 import { saveFact, searchFacts, toFtsQuery } from "../src/memory/repository.ts";
 import { getUsageByPeriod, logQuery, type QueryLogEntry } from "../src/db/queries.ts";
 import { db } from "../src/db/connection.ts";
+import { config } from "../src/config.ts";
+import { normalizeProjectName, resolveProjectPath } from "../src/db/projects.ts";
 import {
   bytesToEmbedding,
   cosineSimilarity,
@@ -28,6 +30,33 @@ import {
 } from "../src/memory/consolidation.ts";
 import { categoryGuide, MEMORY_CATEGORIES } from "../src/memory/categories.ts";
 import { buildContextSnippet, parseEntities } from "../src/memory/entities.ts";
+
+// --- Project normalization and path resolution ---
+
+test("normalizeProjectName từ chối tên có thể thoát khỏi thư mục gốc", () => {
+  // Tên đi thẳng vào cwd của agent — cho phép ".." là cho agent chạy ngoài ~/dev
+  expect(normalizeProjectName("../etc")).toBeNull();
+  expect(normalizeProjectName("a/b")).toBeNull();
+  expect(normalizeProjectName("..")).toBeNull();
+  expect(normalizeProjectName("")).toBeNull();
+  expect(normalizeProjectName("   ")).toBeNull();
+  expect(normalizeProjectName("x".repeat(65))).toBeNull();
+  expect(normalizeProjectName("Tên Có Dấu")).toBeNull();
+
+  expect(normalizeProjectName("my-assistant")).toBe("my-assistant");
+  expect(normalizeProjectName("  Funlife  ")).toBe("funlife"); // trim + lowercase
+  expect(normalizeProjectName("baby_name.v2")).toBe("baby_name.v2");
+});
+
+test("resolveProjectPath lùi về thư mục gốc khi project không tồn tại", () => {
+  const real = resolveProjectPath("my-assistant");
+  expect(real.exists).toBe(true);
+  expect(real.path.endsWith("/my-assistant")).toBe(true);
+
+  const missing = resolveProjectPath("khong-ton-tai-abcxyz");
+  expect(missing.exists).toBe(false);
+  expect(missing.path).toBe(config.claudeWorkingDir);
+});
 
 // --- FTS5: keyword thô từng làm memory_search ném lỗi cú pháp ---
 
