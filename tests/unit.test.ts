@@ -4,8 +4,9 @@
 // bunfig.toml. Đặt ở đây không có tác dụng vì `import` được hoist lên trước.
 
 import { expect, mock, test } from "bun:test";
-import { resolve } from "path";
+import { resolve, join } from "path";
 import { tmpdir } from "os";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
 import { formatTokenCount, formatUsageTotal, splitMessage } from "../src/telegram/formatter.ts";
 import { parseModelOverride, resolveModelTier } from "../src/claude/router.ts";
 import { filterSensitiveContent } from "../src/telegram/content-filter.ts";
@@ -48,14 +49,46 @@ test("normalizeProjectName từ chối tên có thể thoát khỏi thư mục g
   expect(normalizeProjectName("baby_name.v2")).toBe("baby_name.v2");
 });
 
-test("resolveProjectPath lùi về thư mục gốc khi project không tồn tại", () => {
-  const real = resolveProjectPath("my-assistant");
-  expect(real.exists).toBe(true);
-  expect(real.path.endsWith("/my-assistant")).toBe(true);
+test("resolveProjectPath phân giải theo baseDir tuỳ chỉnh — hermetic, không phụ thuộc .env hay filesystem thật", () => {
+  // Dựng thư mục gốc giả lập trong tmp, né phụ thuộc vào CLAUDE_WORKING_DIR thật
+  // (theo đúng convention test "config chặn khởi động khi whitelist rỗng" ở dưới)
+  const root = mkdtempSync(join(tmpdir(), "resolve-project-"));
+  const base = join(root, "base");
+  mkdirSync(base);
+  mkdirSync(join(base, "my-assistant"));
+  writeFileSync(join(base, "package.json"), "{}"); // giả lập file trùng regex tên project
+  // Thư mục CÓ THẬT nằm ngoài base — nếu traversal lọt qua thì test dưới đây
+  // sẽ bắt được (không phải chỉ dựa vào việc "/etc" tình cờ không tồn tại)
+  mkdirSync(join(root, "outside"));
 
-  const missing = resolveProjectPath("khong-ton-tai-abcxyz");
-  expect(missing.exists).toBe(false);
-  expect(missing.path).toBe(config.claudeWorkingDir);
+  try {
+    // 1. Thư mục có thật → exists: true
+    const real = resolveProjectPath("my-assistant", base);
+    expect(real).toEqual({ path: join(base, "my-assistant"), exists: true });
+
+    // 2. Tên không tồn tại → lùi về thư mục gốc, exists: false
+    const missing = resolveProjectPath("khong-ton-tai-abcxyz", base);
+    expect(missing).toEqual({ path: base, exists: false });
+
+    // 3. Một FILE (không phải thư mục) → exists: false — existsSync cũ trả true sai,
+    // agent sẽ nhận cwd trỏ vào file và hỏng ngay lúc khởi động
+    const file = resolveProjectPath("package.json", base);
+    expect(file).toEqual({ path: base, exists: false });
+
+    // 4. Traversal bị normalizeProjectName chặn từ bên trong resolveProjectPath —
+    // hàm phải tự an toàn, không dựa vào caller nhớ validate trước. Thư mục
+    // "outside" tồn tại thật nên nếu validate bị bỏ qua, join() sẽ thoát ra
+    // ngoài base và trả exists:true sai — test này bắt được điều đó.
+    const traversal = resolveProjectPath("../outside", base);
+    expect(traversal).toEqual({ path: base, exists: false });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("resolveProjectPath mặc định dùng config.claudeWorkingDir khi không truyền baseDir", () => {
+  const missing = resolveProjectPath("khong-ton-tai-mac-dinh-xyz");
+  expect(missing).toEqual({ path: config.claudeWorkingDir, exists: false });
 });
 
 // --- FTS5: keyword thô từng làm memory_search ném lỗi cú pháp ---
