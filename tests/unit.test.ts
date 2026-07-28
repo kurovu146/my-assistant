@@ -27,7 +27,7 @@ import { config } from "../src/config.ts";
 import { normalizeProjectName, resolveProjectPath, ensureProject, listProjects, getCurrentProject, setCurrentProject, getProjectCwd } from "../src/db/projects.ts";
 import { getActiveSession, createSession, clearActiveSession, getRecentSessions } from "../src/db/sessions.ts";
 import { formatProjectList, formatSkillList } from "../src/telegram/commands.ts";
-import { buildUploadPrompt, resolveQueryCwd, uploadPath } from "../src/telegram/bot.ts";
+import { buildUploadPrompt, persistSession, resolveQueryCwd, uploadPath } from "../src/telegram/bot.ts";
 import {
   bytesToEmbedding,
   cosineSimilarity,
@@ -160,6 +160,25 @@ test("ensureProject KHÔNG đổi path khi thư mục dự án xuất hiện sau
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("phiên mới sau khi provider bỏ phiên chết phải được ghi lại, không chỉ touch phiên cũ", () => {
+  // Nếu chỉ touch phiên cũ, id mới không bao giờ vào active_sessions → tin nhắn sau
+  // lại mở thêm một phiên nữa, mạch hội thoại không bao giờ nối lại được.
+  const userId = 932;
+  ensureProject("ketoan-persist");
+  createSession(userId, "ketoan-persist", "phien-chet", "phiên cũ");
+  clearActiveSession(userId, "ketoan-persist"); // provider vừa dọn vì không resume được
+
+  persistSession(userId, "ketoan-persist", "phien-chet", "phien-moi", "câu hỏi mới");
+  expect(getActiveSession(userId, "ketoan-persist")?.sessionId).toBe("phien-moi");
+
+  // Phiên nối lại bình thường (id không đổi) thì chỉ touch, không tạo bản ghi thừa
+  persistSession(userId, "ketoan-persist", "phien-moi", "phien-moi", "câu nữa");
+  expect(getRecentSessions(userId, "ketoan-persist").map((s) => s.sessionId).sort()).toEqual([
+    "phien-chet",
+    "phien-moi",
+  ]);
 });
 
 test("getProjectCwd trả null cho project không có trong registry", () => {
@@ -1061,6 +1080,46 @@ test("query() chạy trong thư mục của project đang mở", async () => {
   await new ClaudeProvider().query({ prompt: "x", userId: 1, cwd: "/tmp/duan" });
 
   expect(captured?.cwd).toBe("/tmp/duan");
+});
+
+test("phiên không nối lại được thì bỏ phiên chết và chạy tiếp, không kẹt lỗi mãi", async () => {
+  // SDK lưu transcript theo cwd. Khi cwd lệch (hoặc transcript bị xoá) nó ném
+  // "No conversation found" — lỗi này KHÔNG tự khỏi: session id chết vẫn nằm trong
+  // active_sessions nên mọi tin nhắn sau đều lỗi y hệt cho tới khi user tự /new.
+  const resumes: (string | undefined)[] = [];
+  mock.module("@anthropic-ai/claude-agent-sdk", () => ({
+    query: ({ options }: { options: Record<string, unknown> }) => {
+      resumes.push(options.resume as string | undefined);
+      if (options.resume) {
+        throw new Error(`No conversation found with session ID: ${options.resume}`);
+      }
+      return (async function* () {
+        yield { type: "result", subtype: "success", result: "ok", session_id: "phien-moi" };
+      })();
+    },
+  }));
+
+  const userId = 930;
+  ensureProject("ketoan");
+  createSession(userId, "ketoan", "phien-chet", "phiên cũ");
+  // Phiên của project khác không được đụng tới khi dọn
+  createSession(userId, "alpha", "phien-alpha", "phiên alpha");
+
+  const { ClaudeProvider } = await import("../src/claude/provider.ts");
+  const res = await new ClaudeProvider().query({
+    prompt: "tiếp tục giúp anh",
+    sessionId: "phien-chet",
+    userId,
+    project: "ketoan",
+  });
+
+  expect(res.error).toBeUndefined();
+  expect(res.sessionId).toBe("phien-moi");
+  // Lần đầu resume phiên chết, lần sau chạy sạch không kèm resume
+  expect(resumes).toEqual(["phien-chet", undefined]);
+  // Phiên chết bị gỡ khỏi đúng cặp (user, project), phiên project khác còn nguyên
+  expect(getActiveSession(userId, "ketoan")).toBeNull();
+  expect(getActiveSession(userId, "alpha")?.sessionId).toBe("phien-alpha");
 });
 
 // --- extractFacts: thiếu scope phải rơi vào project hiện tại, không thành fact chung ---

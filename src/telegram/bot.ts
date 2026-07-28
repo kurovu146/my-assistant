@@ -55,6 +55,29 @@ export function uploadPath(fileName: string): string {
 }
 
 /**
+ * Ghi lại phiên sau mỗi lượt trả lời.
+ *
+ * So theo session id chứ không theo "trước đó đã có phiên hay chưa": provider có thể
+ * đã phải bỏ phiên cũ giữa chừng vì không resume được. Nếu chỉ touch phiên cũ trong
+ * trường hợp đó thì id mới không bao giờ vào `active_sessions`, và mỗi tin nhắn sau
+ * lại mở thêm một phiên nữa — mạch hội thoại không bao giờ nối lại được.
+ */
+export function persistSession(
+  userId: number,
+  project: string,
+  previousSessionId: string | undefined,
+  returnedSessionId: string,
+  title: string,
+  model?: string,
+): void {
+  if (returnedSessionId && returnedSessionId !== previousSessionId) {
+    createSession(userId, project, returnedSessionId, title, model);
+  } else if (previousSessionId) {
+    touchSession(userId, previousSessionId);
+  }
+}
+
+/**
  * Thư mục làm việc cho một query.
  *
  * Lấy từ đường dẫn đã chốt trong registry, KHÔNG phân giải lại từ tên project:
@@ -354,11 +377,14 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
     }
 
     // Lưu session (ghi model thực tế đã dùng — response.model sau failover)
-    if (!session && response.sessionId) {
-      createSession(userId, project, response.sessionId, sessionTitle, response.model || selectedModel);
-    } else if (session) {
-      touchSession(userId, session.sessionId);
-    }
+    persistSession(
+      userId,
+      project,
+      session?.sessionId,
+      response.sessionId,
+      sessionTitle,
+      response.model || selectedModel,
+    );
 
     // Log query analytics (kèm model)
     const responseTimeMs = Date.now() - startTime;

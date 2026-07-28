@@ -13,6 +13,7 @@ import { createSheetsMcpServer } from "../mcp/sheets.ts";
 import { createMemoryMcpServer } from "../mcp/memory.ts";
 import { createKnowledgeMcpServer } from "../mcp/knowledge.ts";
 import { buildMemoryContext } from "../memory/extraction.ts";
+import { clearActiveSession } from "../db/sessions.ts";
 import type {
   AgentProvider,
   CompletionProvider,
@@ -67,6 +68,18 @@ function getFailoverModel(currentModel: string): string | null {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Phiên cũ không nối lại được — SDK không tìm thấy transcript của session id đó.
+ *
+ * Transcript nằm ở `~/.claude/projects/<cwd-đã-escape>/<session-id>.jsonl`, nên lỗi
+ * này xảy ra khi cwd lúc resume khác cwd lúc tạo phiên, hoặc file transcript bị xoá.
+ * Không phải lỗi tạm thời: retry y nguyên bao nhiêu lần cũng ra đúng lỗi đó.
+ */
+function isSessionNotFoundError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return msg.toLowerCase().includes("no conversation found");
 }
 
 function isRetryableError(error: unknown): boolean {
@@ -181,6 +194,9 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
     const textParts: string[] = [];
     let resolvedSessionId = sessionId || "";
     let activeModel = modelOverride;
+    // Tách khỏi `sessionId`: khi phiên cũ không nối lại được, ta bỏ resume và chạy
+    // lại như phiên mới thay vì để lỗi nổi lên user (xem nhánh catch bên dưới).
+    let resumeSessionId = sessionId || "";
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
@@ -234,7 +250,7 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
             hooks: auditBashHook,
             // Không giới hạn số turn lẫn thời gian: task chạy tới khi xong.
             // Phanh duy nhất là /stop của user (abortSignal bên dưới).
-            ...(sessionId ? { resume: sessionId } : {}),
+            ...(resumeSessionId ? { resume: resumeSessionId } : {}),
             ...(abortSignal
               ? {
                   abortController: (() => {
@@ -304,6 +320,25 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
             sessionId: resolvedSessionId,
             toolsUsed: [...new Set(toolsUsed)],
           };
+        }
+
+        // Lưới an toàn: phiên cũ không nối lại được thì bỏ nó và chạy lại như phiên
+        // mới. Không có nhánh này, lỗi nổi thẳng lên user MÀ session id đã chết vẫn
+        // nằm nguyên trong active_sessions (lỗi ném ra trước nhánh tạo phiên mới) —
+        // nên mọi tin nhắn sau đều lỗi y hệt, mãi mãi, không có đường tự thoát.
+        // Đánh đổi: user mất mạch của phiên đó, nhưng bot tiếp tục hoạt động.
+        if (isSessionNotFoundError(error) && resumeSessionId && attempt < MAX_RETRIES) {
+          logger.log(`⚠️ Không nối lại được phiên ${resumeSessionId} — mở phiên mới`);
+          if (userId !== undefined) clearActiveSession(userId, project ?? "");
+          resumeSessionId = "";
+          onProgress?.({
+            type: "text_chunk",
+            content: "\n⚠️ Phiên cũ không nối lại được, đã mở phiên mới.\n",
+          });
+          toolsUsed.length = 0;
+          textParts.length = 0;
+          resolvedSessionId = "";
+          continue;
         }
 
         // Retry with backoff + model failover
