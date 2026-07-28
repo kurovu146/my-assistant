@@ -15,7 +15,7 @@ import {
 } from "../db/projects.ts";
 import { getQueryStats, getUsageByPeriod, type PeriodUsage } from "../db/queries.ts";
 import { clearUserModel, getUserModel, setUserModel } from "../db/user-model.ts";
-import { deleteFact, getUserFacts, countFacts } from "../memory/repository.ts";
+import { deleteFact, getFactById, getUserFacts, countFacts } from "../memory/repository.ts";
 import { countDocuments } from "../memory/knowledge.ts";
 import { countEntities } from "../memory/entities.ts";
 import { formatTokenCount, splitMessage, timeAgo, TOOL_ICONS } from "./formatter.ts";
@@ -464,9 +464,16 @@ export async function handleForget(ctx: Context): Promise<void> {
     return;
   }
 
+  // Đọc trước khi xoá — id rộng hơn phạm vi /memory đang hiển thị trên màn hình
+  // (project khác cũng gõ được), và fact_relations/memory_kb_links xoá theo CASCADE
+  // nên không hoàn tác được. Echo nguyên văn để gõ nhầm số còn biết ngay mình vừa
+  // mất gì, thay vì chỉ thấy "#42" trống không.
+  const fact = getFactById(userId, id);
   // deleteFact lọc theo user_id nên không xoá được fact của người khác
   const deleted = deleteFact(userId, id);
-  await ctx.reply(deleted ? `✅ Đã xoá fact #${id}` : `❌ Không tìm thấy fact #${id}`);
+  await ctx.reply(
+    deleted && fact ? `✅ Đã xoá #${id}: "${fact.fact}"` : `❌ Không tìm thấy fact #${id}`,
+  );
 }
 
 /**
