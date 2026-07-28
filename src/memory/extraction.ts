@@ -100,7 +100,10 @@ export async function extractFacts(
         // tìm lại được qua memory_search).
         const scope = f.scope === "global" ? null : project || null;
         const saved = saveFact(userId, f.fact, f.category || FALLBACK_CATEGORY, source, scope);
-        await embedAndLinkFact(userId, saved.id, f.fact);
+        // Truyền đúng project của fact vừa lưu — nếu không, embedAndLinkFact rơi về
+        // default (chỉ link trong fact chung) và fact riêng theo project sẽ không
+        // bao giờ được link đúng phạm vi của nó.
+        await embedAndLinkFact(userId, saved.id, f.fact, scope);
       }
     }
 

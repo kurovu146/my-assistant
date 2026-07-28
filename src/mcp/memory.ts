@@ -58,14 +58,11 @@ export function createMemoryMcpServer(userId: number) {
           // (fact chung) chứ không lưu thẳng "", nếu không fact mồ côi ở project ""
           // chỉ hiện lại đúng lúc user chưa chọn project nào.
           const currentProject = getCurrentProject(userId) || null;
-          const saved = saveFact(
-            userId,
-            args.fact,
-            args.category,
-            "active",
-            args.scope === "global" ? null : currentProject,
-          );
-          const linked = await embedAndLinkFact(userId, saved.id, args.fact);
+          const factProject = args.scope === "global" ? null : currentProject;
+          const saved = saveFact(userId, args.fact, args.category, "active", factProject);
+          // Truyền đúng project của fact vừa lưu để embedAndLinkFact không tạo link
+          // xuyên project (fact riêng chỉ link với cùng project + fact chung).
+          const linked = await embedAndLinkFact(userId, saved.id, args.fact, factProject);
 
           let text = `✅ Đã ghi nhớ (ID: ${saved.id}): "${args.fact}" [${args.category}]`;
           if (linked.length > 0) {
@@ -135,14 +132,12 @@ export function createMemoryMcpServer(userId: number) {
           limit: z.number().optional().default(30).describe("Số kết quả tối đa"),
         },
         async (args) => {
-          // getFactsByCategory chưa lọc theo project (ngoài phạm vi Task 7 — MemoryFact
-          // chưa expose field project để lọc phía JS); nhánh không filter category thì
-          // lọc được ngay bằng getUserFacts.
+          const currentProject = getCurrentProject(userId);
           const facts = args.category
-            ? getFactsByCategory(userId, args.category)
-            : getUserFacts(userId, args.limit, getCurrentProject(userId));
+            ? getFactsByCategory(userId, args.category, currentProject)
+            : getUserFacts(userId, args.limit, currentProject);
 
-          const total = countFacts(userId);
+          const total = countFacts(userId, currentProject);
 
           if (facts.length === 0) {
             return {

@@ -32,9 +32,12 @@ export function saveFact(
     .get(userId, fact) as any;
 
   if (existing) {
+    // Cập nhật luôn project: nếu không, fact trùng text lưu lại ở project khác sẽ
+    // âm thầm giữ nguyên project cũ — record không bao giờ hiện đúng chỗ caller mới
+    // định lưu vào.
     db.run(
-      `UPDATE memory_facts SET category = ?, source = ?, updated_at = ? WHERE id = ?`,
-      [category, source, now, existing.id],
+      `UPDATE memory_facts SET category = ?, source = ?, project = ?, updated_at = ? WHERE id = ?`,
+      [category, source, project, now, existing.id],
     );
     return { id: existing.id, userId, fact, category, source, createdAt: now, updatedAt: now, lastAccessedAt: 0, accessCount: 0 };
   }
@@ -246,24 +249,33 @@ export interface RelatedFact {
   similarity: number;
 }
 
-export function getRelatedFacts(factId: number, limit = 3): RelatedFact[] {
+// Bỏ trống/"" nghĩa là chỉ lấy fact chung — cùng quy ước với getUserFacts. Quan hệ
+// cũ (tạo trước khi có lọc này, hoặc tạo bởi consolidation) có thể trỏ sang fact của
+// project khác — lọc ở đây để dữ liệu liên kết cũ đó không tiếp tục lộ ra ngoài.
+export function getRelatedFacts(factId: number, limit = 3, project: string = ""): RelatedFact[] {
   return db
     .query(
       `SELECT m.id, m.fact, m.category, r.similarity
        FROM fact_relations r
        JOIN memory_facts m
          ON m.id = CASE WHEN r.fact_id_1 = ?1 THEN r.fact_id_2 ELSE r.fact_id_1 END
-       WHERE r.fact_id_1 = ?1 OR r.fact_id_2 = ?1
+       WHERE (r.fact_id_1 = ?1 OR r.fact_id_2 = ?1)
+         AND (m.project IS NULL OR m.project = ?3)
        ORDER BY r.similarity DESC
        LIMIT ?2`,
     )
-    .all(factId, limit) as RelatedFact[];
+    .all(factId, limit, project) as RelatedFact[];
 }
 
-export function getFactsByCategory(userId: number, category: string): MemoryFact[] {
+// Bỏ trống/"" nghĩa là chỉ lấy fact chung — cùng quy ước với getUserFacts.
+export function getFactsByCategory(userId: number, category: string, project: string = ""): MemoryFact[] {
   const rows = db
-    .query(`SELECT * FROM memory_facts WHERE user_id = ? AND category = ? ORDER BY updated_at DESC`)
-    .all(userId, category) as any[];
+    .query(
+      `SELECT * FROM memory_facts
+       WHERE user_id = ? AND category = ? AND (project IS NULL OR project = ?)
+       ORDER BY updated_at DESC`,
+    )
+    .all(userId, category, project) as any[];
   return rows.map(mapFact);
 }
 
@@ -275,8 +287,11 @@ export function deleteFact(userId: number, factId: number): boolean {
   return result.changes > 0;
 }
 
-export function countFacts(userId: number): number {
-  const row = db.query(`SELECT COUNT(*) as cnt FROM memory_facts WHERE user_id = ?`).get(userId) as any;
+// Bỏ trống/"" nghĩa là chỉ đếm fact chung — cùng quy ước với getUserFacts.
+export function countFacts(userId: number, project: string = ""): number {
+  const row = db
+    .query(`SELECT COUNT(*) as cnt FROM memory_facts WHERE user_id = ? AND (project IS NULL OR project = ?)`)
+    .get(userId, project) as any;
   return row.cnt;
 }
 

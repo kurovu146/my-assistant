@@ -38,11 +38,19 @@ const EMBED_BATCH = 128;
 /**
  * Embed 1 fact vừa lưu và liên kết với các fact tương tự.
  * Trả về danh sách fact đã liên kết (rỗng nếu tắt embedding hoặc lỗi).
+ *
+ * `project` là project của CHÍNH fact đang lưu (null = fact chung — cùng quy ước
+ * với `saveFact`), không phải "project hiện tại" của người gọi. Dùng để giới hạn
+ * candidate link đúng phạm vi: fact riêng của project A chỉ được link với fact của
+ * A hoặc fact chung; fact chung chỉ link với fact chung. Không giới hạn thì mỗi lần
+ * lưu fact có thể tự động link (và sau đó lộ nội dung ra qua `getRelatedFacts`) với
+ * fact của một project hoàn toàn khác.
  */
 export async function embedAndLinkFact(
   userId: number,
   factId: number,
   factText: string,
+  project: string | null = null,
 ): Promise<{ id: number; fact: string; similarity: number }[]> {
   const client = getEmbeddingClient();
   if (!client) return [];
@@ -53,7 +61,9 @@ export async function embedAndLinkFact(
     updateFactEmbedding(factId, embeddingToBytes(vector));
 
     const linked: { id: number; fact: string; similarity: number }[] = [];
-    const candidates = loadAllFactEmbeddings(userId)
+    // project=null (fact chung) → "" cho loadAllFactEmbeddings, đúng quy ước
+    // "chỉ lấy fact chung" đã dùng ở getUserFacts/searchFacts.
+    const candidates = loadAllFactEmbeddings(userId, project ?? "")
       .filter((f) => f.id !== factId)
       .map((f) => ({ ...f, similarity: cosineSimilarity(vector, bytesToEmbedding(f.embedding)) }))
       .filter((f) => f.similarity > RELATION_THRESHOLD)
@@ -130,7 +140,9 @@ export async function searchFactsHybrid(
     .map((s) => ({
       fact: s.fact,
       score: hybridScore(s.fts, s.vector, hasVectors),
-      related: getRelatedFacts(s.fact.id).map((r) => ({
+      // Truyền project của người gọi — nếu không, fact liên quan của project khác
+      // (kể cả quan hệ tạo TRƯỚC khi có filter ở embedAndLinkFact) vẫn lộ ra đây.
+      related: getRelatedFacts(s.fact.id, MAX_RELATIONS_PER_FACT, project).map((r) => ({
         id: r.id,
         fact: r.fact,
         similarity: r.similarity,

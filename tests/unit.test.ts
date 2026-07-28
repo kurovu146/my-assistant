@@ -10,7 +10,16 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
 import { formatTokenCount, formatUsageTotal, splitMessage } from "../src/telegram/formatter.ts";
 import { parseModelOverride, resolveModelTier } from "../src/claude/router.ts";
 import { filterSensitiveContent } from "../src/telegram/content-filter.ts";
-import { saveFact, searchFacts, getUserFacts, toFtsQuery } from "../src/memory/repository.ts";
+import {
+  saveFact,
+  searchFacts,
+  getUserFacts,
+  toFtsQuery,
+  getFactsByCategory,
+  countFacts,
+  linkFacts,
+  getRelatedFacts,
+} from "../src/memory/repository.ts";
 import { getUsageByPeriod, logQuery, type QueryLogEntry } from "../src/db/queries.ts";
 import { db } from "../src/db/connection.ts";
 import { config } from "../src/config.ts";
@@ -345,6 +354,52 @@ test("searchFacts cũng chặn fact của project khác", () => {
   expect(hits).not.toContain("Beta deploy bằng PM2");
 });
 
+test("getRelatedFacts không lộ quan hệ cũ trỏ sang fact của project khác", () => {
+  // Chèn thẳng vào fact_relations (không qua embedAndLinkFact) để giả lập quan hệ
+  // tạo TRƯỚC khi có fix — loại dữ liệu này vẫn tồn tại thật trong DB hiện tại,
+  // getRelatedFacts phải tự lọc chứ không thể trông chờ dữ liệu luôn sạch.
+  const alphaFact = saveFact(925, "Alpha: dùng Redis cache", "infra", "test", "alpha");
+  const betaFact = saveFact(925, "Beta: dùng Redis cache", "infra", "test", "beta");
+  linkFacts(alphaFact.id, betaFact.id, 0.9);
+
+  const related = getRelatedFacts(alphaFact.id, 3, "alpha").map((r) => r.id);
+  expect(related).not.toContain(betaFact.id);
+});
+
+test("getFactsByCategory chặn fact của project khác", () => {
+  saveFact(926, "Alpha: convention naming camelCase", "convention", "test", "alpha");
+  saveFact(926, "Beta: convention naming snake_case", "convention", "test", "beta");
+
+  const inAlpha = getFactsByCategory(926, "convention", "alpha").map((f) => f.fact);
+  expect(inAlpha).toContain("Alpha: convention naming camelCase");
+  expect(inAlpha).not.toContain("Beta: convention naming snake_case");
+});
+
+test("saveFact cập nhật lại project khi fact trùng text được lưu ở project khác", () => {
+  // Model có thể sinh trùng câu fact ở 2 project khác nhau (vd cùng công cụ deploy).
+  // Dedupe vẫn theo (user_id, fact) như cũ, nhưng UPDATE phải dịch project theo
+  // caller mới nhất — không thì record âm thầm giữ nguyên project cũ.
+  const userId = 927;
+  const first = saveFact(userId, "Deploy bằng Docker Compose", "infra", "test", "alpha");
+  const second = saveFact(userId, "Deploy bằng Docker Compose", "infra", "test", "beta");
+
+  expect(second.id).toBe(first.id); // vẫn 1 row, không tạo bản ghi mới
+
+  expect(getUserFacts(userId, 50, "alpha").map((f) => f.fact)).not.toContain("Deploy bằng Docker Compose");
+  expect(getUserFacts(userId, 50, "beta").map((f) => f.fact)).toContain("Deploy bằng Docker Compose");
+});
+
+test("countFacts chỉ đếm fact chung + fact của project đang mở", () => {
+  const userId = 928;
+  saveFact(userId, "Fact chung 1", "general", "test", null);
+  saveFact(userId, "Alpha fact 1", "general", "test", "alpha");
+  saveFact(userId, "Alpha fact 2", "general", "test", "alpha");
+  saveFact(userId, "Beta fact 1", "general", "test", "beta");
+
+  expect(countFacts(userId, "alpha")).toBe(3); // 1 chung + 2 alpha
+  expect(countFacts(userId, "beta")).toBe(2); // 1 chung + 1 beta
+});
+
 // --- Whitelist fail-closed: bot chạy shell nên không được mở mặc định ---
 
 async function loadConfigWith(env: Record<string, string>): Promise<number> {
@@ -401,6 +456,46 @@ test("searchFactsHybrid rơi về FTS khi không có VOYAGE_API_KEY", async () =
   expect(hits.length).toBeGreaterThan(0);
   expect(hits[0]!.fact.fact).toContain("Bun");
   expect(hits[0]!.related).toEqual([]); // chưa embed thì không có liên kết
+});
+
+// mock.module thay module toàn cục nên đặt sau test thật ở trên, và không test nào
+// phía dưới còn cần embedding.ts/semantic.ts thật (đã kiểm — chỉ 2 test cuối file
+// mock claude/provider.ts, agent-sdk, khác module).
+test("embedAndLinkFact chỉ link fact cùng project hoặc fact chung — không link xuyên project", async () => {
+  const userId = 924;
+  // Vector giống hệt nhau cho mọi fact → cosine similarity luôn = 1, chắc chắn vượt
+  // RELATION_THRESHOLD (0.75) bất kể nội dung text, để test không phụ thuộc vào
+  // công thức similarity thật.
+  const FAKE_VECTOR = [1, 0, 0];
+  const realEmbedding = await import("../src/memory/embedding.ts");
+  mock.module("../src/memory/embedding.ts", () => ({
+    ...realEmbedding,
+    getEmbeddingClient: () => ({
+      embedBatch: async (texts: string[]) => texts.map(() => FAKE_VECTOR),
+    }),
+  }));
+
+  const { embedAndLinkFact } = await import("../src/memory/semantic.ts");
+
+  const global1 = saveFact(userId, "Anh thích code sạch", "preference", "test", null);
+  await embedAndLinkFact(userId, global1.id, global1.fact, null);
+
+  const beta1 = saveFact(userId, "Beta dùng MySQL", "stack", "test", "beta");
+  await embedAndLinkFact(userId, beta1.id, beta1.fact, "beta");
+
+  const alpha1 = saveFact(userId, "Alpha dùng Postgres", "stack", "test", "alpha");
+  const alphaLinked = await embedAndLinkFact(userId, alpha1.id, alpha1.fact, "alpha");
+
+  // Fact riêng của alpha: link được với fact chung, không link với fact của beta
+  expect(alphaLinked.map((l) => l.id)).toContain(global1.id);
+  expect(alphaLinked.map((l) => l.id)).not.toContain(beta1.id);
+
+  // Fact chung: chỉ link với fact chung, không tự link ngược vào alpha/beta
+  const global2 = saveFact(userId, "Anh thích ngủ sớm", "personal", "test", null);
+  const globalLinked = await embedAndLinkFact(userId, global2.id, global2.fact, null);
+  expect(globalLinked.map((l) => l.id)).toContain(global1.id);
+  expect(globalLinked.map((l) => l.id)).not.toContain(alpha1.id);
+  expect(globalLinked.map((l) => l.id)).not.toContain(beta1.id);
 });
 
 // --- Knowledge base: chunking ---
