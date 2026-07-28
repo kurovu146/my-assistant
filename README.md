@@ -181,8 +181,16 @@ làm việc khác rồi quay lại thì mạch cũ vẫn còn.
 
 - `/p` — xem project đang có
 - `/p <tên>` — chuyển sang project, tự tạo nếu chưa có
-- Thư mục làm việc là `~/dev/<tên>` nếu tồn tại, không thì lùi về `CLAUDE_WORKING_DIR`
-- Dấu ⚠️ cạnh project name = thư mục riêng không tồn tại; agent chạy trong `CLAUDE_WORKING_DIR`
+- Thư mục làm việc được **chốt một lần duy nhất** lúc `/p <tên>` chạy lần đầu (`~/dev/<tên>`
+  nếu đã tồn tại, không thì `CLAUDE_WORKING_DIR`) và **không đổi nữa về sau** — kể cả khi
+  thư mục riêng xuất hiện sau đó. Đổi cwd giữa chừng làm Claude Agent SDK mất transcript
+  của phiên đang chạy (phiên chết hẳn), nên đây là đánh đổi có chủ ý.
+  ⚠️ **Vì vậy hãy `mkdir ~/dev/<tên>` TRƯỚC khi gõ `/p <tên>` lần đầu** — gõ `/p` trước rồi
+  mới tạo thư mục thì project đó vĩnh viễn chạy ở `CLAUDE_WORKING_DIR`. Chưa có cơ chế
+  "chốt lại" thư mục sau khi đã tạo project.
+- Dấu ⚠️ cạnh project name = thư mục đã chốt không khớp thư mục riêng trên đĩa (chưa từng
+  có thư mục riêng lúc tạo, thư mục riêng xuất hiện sau, hoặc thư mục đã chốt bị xoá) —
+  agent đang chạy trong `CLAUDE_WORKING_DIR` thay vì thư mục riêng của project
 - Memory chia hai loại: fact chung (sở thích, thói quen) theo anh khắp nơi; fact riêng
   (stack, kiến trúc) chỉ hiện ở đúng project của nó
 

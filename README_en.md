@@ -181,8 +181,18 @@ Each project keeps its own conversation session, so leaving `funlife` mid-task f
 
 - `/p` — list projects
 - `/p <name>` — switch to a project, creating it on first use
-- Working directory is `~/dev/<name>` when it exists, otherwise `CLAUDE_WORKING_DIR`
-- ⚠️ next to a project name means its directory doesn't exist; agent runs in `CLAUDE_WORKING_DIR` instead
+- The working directory is **frozen exactly once**, the first time `/p <name>` runs
+  (`~/dev/<name>` if it already exists, otherwise `CLAUDE_WORKING_DIR`) and **never changes
+  afterward** — even if the project's own directory shows up later. Changing cwd mid-flight
+  makes the Claude Agent SDK lose the running session's transcript (the session dies for
+  good), so this is an intentional trade-off.
+  ⚠️ **So `mkdir ~/dev/<name>` BEFORE running `/p <name>` for the first time** — running
+  `/p` first and creating the directory afterward permanently pins that project to
+  `CLAUDE_WORKING_DIR`. There's no "re-link" mechanism yet to fix it after the fact.
+- ⚠️ next to a project name means the frozen directory doesn't match the project's own
+  directory on disk (it never had one at creation time, one appeared later, or the frozen
+  one was deleted) — the agent is running in `CLAUDE_WORKING_DIR` instead of the project's
+  own directory
 - Memory splits in two: global facts (preferences, habits) follow you everywhere; project
   facts (stack, architecture) only surface in their own project
 
