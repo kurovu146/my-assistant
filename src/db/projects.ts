@@ -154,3 +154,14 @@ export function setCurrentProject(userId: number, name: string): void {
     [userId, name],
   );
 }
+
+/**
+ * Thoát project, quay về trò chuyện chung.
+ *
+ * Xoá hẳn con trỏ thay vì lưu chuỗi rỗng: `getCurrentProject` vốn đã trả `""` khi
+ * không có hàng nào, nên đây là cùng một trạng thái với "chưa từng gõ /p" — cwd về
+ * thư mục gốc, memory chỉ còn fact chung, fact mới lưu dạng chung (NULL).
+ */
+export function clearCurrentProject(userId: number): void {
+  db.run(`DELETE FROM current_project WHERE user_id = ?`, [userId]);
+}

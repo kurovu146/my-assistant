@@ -161,7 +161,7 @@ skills/                   # Knowledge base (file .md, tự động load)
 | Lệnh | Mô tả |
 |------|-------|
 | `/start` | Giới thiệu bot |
-| `/p [tên]` | Xem danh sách project, hoặc chuyển sang project (tạo nếu chưa có) |
+| `/p [tên]` | Xem danh sách project, hoặc chuyển sang project (tạo nếu chưa có). `/p -` để thoát project |
 | `/new` | Tạo phiên mới |
 | `/resume` | Tiếp tục phiên cũ (5 phiên gần nhất) |
 | `/model [tier]` | Xem/đổi model. Không tham số → menu nút bấm; `/model opus` đổi thẳng; `/model reset` về mặc định |
@@ -181,6 +181,8 @@ làm việc khác rồi quay lại thì mạch cũ vẫn còn.
 
 - `/p` — xem project đang có
 - `/p <tên>` — chuyển sang project, tự tạo nếu chưa có
+- `/p -` — thoát project, về trò chuyện chung: thư mục gốc, chỉ thấy fact chung, và fact
+  mới rút ra được lưu dạng chung nên dùng lại được ở mọi project (cũng nhận `none`, `chung`)
 - Thư mục làm việc được **chốt một lần duy nhất** lúc `/p <tên>` chạy lần đầu (`~/dev/<tên>`
   nếu đã tồn tại, không thì `CLAUDE_WORKING_DIR`) và **không đổi nữa về sau** — kể cả khi
   thư mục riêng xuất hiện sau đó. Đổi cwd giữa chừng làm Claude Agent SDK mất transcript

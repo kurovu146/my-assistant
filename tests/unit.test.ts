@@ -24,7 +24,7 @@ import {
 import { getUsageByPeriod, logQuery, type QueryLogEntry } from "../src/db/queries.ts";
 import { db } from "../src/db/connection.ts";
 import { config } from "../src/config.ts";
-import { normalizeProjectName, resolveProjectPath, ensureProject, listProjects, getCurrentProject, setCurrentProject, getProjectCwd } from "../src/db/projects.ts";
+import { normalizeProjectName, resolveProjectPath, ensureProject, listProjects, getCurrentProject, setCurrentProject, clearCurrentProject, getProjectCwd } from "../src/db/projects.ts";
 import { getActiveSession, createSession, clearActiveSession, getRecentSessions } from "../src/db/sessions.ts";
 import { formatProjectList, formatSkillList } from "../src/telegram/commands.ts";
 import { buildUploadPrompt, persistSession, resolveQueryCwd, uploadPath } from "../src/telegram/bot.ts";
@@ -903,6 +903,41 @@ test("shouldConsolidateNow chỉ cho chạy khi đã quá 24h", () => {
 
   markConsolidated(Date.now() - DAY - 60_000); // 24h + 1 phút
   expect(shouldConsolidateNow()).toBe(true);
+});
+
+// --- Thoát project: quay về trò chuyện chung ---
+
+test("clearCurrentProject đưa user về trạng thái không project", () => {
+  const userId = 940;
+  ensureProject("du-an-tam");
+  setCurrentProject(userId, "du-an-tam");
+  expect(getCurrentProject(userId)).toBe("du-an-tam");
+
+  clearCurrentProject(userId);
+
+  // Chuỗi rỗng = trạng thái mặc định khi chưa từng gõ /p: cwd về thư mục gốc,
+  // memory chỉ còn fact chung, fact mới lưu dạng chung (NULL)
+  expect(getCurrentProject(userId)).toBe("");
+});
+
+test("clearCurrentProject gọi khi vốn không ở project nào cũng không lỗi", () => {
+  expect(() => clearCurrentProject(941)).not.toThrow();
+  expect(getCurrentProject(941)).toBe("");
+});
+
+test("formatProjectList nói rõ đang không ở project nào", () => {
+  const projects = [
+    { name: "alpha", path: "/tmp/alpha", createdAt: 0, lastUsedAt: Date.now(), sessionCount: 2 },
+  ];
+
+  const inProject = formatProjectList(projects, "alpha", "/tmp");
+  expect(inProject).toMatch(/▸\s*alpha/);
+  expect(inProject).not.toContain("không project");
+
+  // Không có dấu ▸ nào thì anh Tuấn không biết mình đang ở đâu — phải nói thẳng ra
+  const outside = formatProjectList(projects, "", "/tmp");
+  expect(outside).not.toMatch(/▸\s*alpha/);
+  expect(outside).toContain("không project");
 });
 
 // --- Taxonomy category ---

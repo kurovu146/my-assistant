@@ -161,7 +161,7 @@ skills/                   # Knowledge base (.md files, auto-loaded)
 | Command | Description |
 |---------|-------------|
 | `/start` | Bot introduction |
-| `/p [name]` | List projects, or switch to one (created on first use) |
+| `/p [name]` | List projects, or switch to one (created on first use). `/p -` leaves the current project |
 | `/new` | Start a new session |
 | `/resume` | Resume a previous session (last 5) |
 | `/model [tier]` | View/change model. No argument → button menu; `/model opus` switches directly; `/model reset` restores the default |
@@ -181,6 +181,8 @@ Each project keeps its own conversation session, so leaving `funlife` mid-task f
 
 - `/p` — list projects
 - `/p <name>` — switch to a project, creating it on first use
+- `/p -` — leave the current project: root working directory, only global facts, and newly
+  extracted facts are stored as global so they apply everywhere (`none`, `chung` also work)
 - The working directory is **frozen exactly once**, the first time `/p <name>` runs
   (`~/dev/<name>` if it already exists, otherwise `CLAUDE_WORKING_DIR`) and **never changes
   afterward** — even if the project's own directory shows up later. Changing cwd mid-flight

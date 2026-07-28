@@ -6,6 +6,7 @@
 import type { Context } from "grammy";
 import { clearActiveSession, getActiveSession, getRecentSessions, setActiveSession } from "../db/sessions.ts";
 import {
+  clearCurrentProject,
   ensureProject,
   getCurrentProject,
   listProjects,
@@ -160,11 +161,17 @@ export function formatProjectList(
     const warn = own.exists && own.path === p.path ? "" : " ⚠️";
     return `${mark} ${p.name} — ${p.sessionCount} phiên · ${timeAgo(p.lastUsedAt)}${warn}`;
   });
-  return `📁 Project đang có:\n${lines.join("\n")}`;
+  // Không project nào được đánh dấu ▸ thì phải nói thẳng, nếu không anh nhìn
+  // danh sách mà không biết mình đang đứng ở đâu.
+  const footer = current ? "" : "\n  (đang ở: không project)";
+  return `📁 Project đang có:\n${lines.join("\n")}${footer}`;
 }
 
+/** Đối số của /p mang nghĩa "thoát project, về trò chuyện chung". */
+const EXIT_PROJECT_ARGS = new Set(["-", "none", "chung", "reset"]);
+
 /**
- * /p — xem danh sách project; /p <tên> — chuyển (tạo nếu chưa có)
+ * /p — xem danh sách project; /p <tên> — chuyển (tạo nếu chưa có); /p - — thoát project
  */
 export async function handleProject(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
@@ -174,6 +181,15 @@ export async function handleProject(ctx: Context): Promise<void> {
 
   if (!arg) {
     await ctx.reply(formatProjectList(listProjects(), getCurrentProject(userId)));
+    return;
+  }
+
+  if (EXIT_PROJECT_ARGS.has(arg.toLowerCase())) {
+    clearCurrentProject(userId);
+    await ctx.reply(
+      `✅ Đã thoát project\n📂 ${config.claudeWorkingDir}\n` +
+        `💭 Trò chuyện chung — fact mới sẽ dùng được ở mọi project`,
+    );
     return;
   }
 
