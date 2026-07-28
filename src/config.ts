@@ -76,6 +76,11 @@ export const config = {
   // Session
   sessionTimeoutHours: envInt("SESSION_TIMEOUT_HOURS", 72),
 
+  // Số project được gọi Claude cùng lúc. Subscription dùng chung hạn mức 5h nên
+  // mỗi lane chạy song song là một lần nhân tốc độ đốt quota — 3 là mức đủ dùng
+  // mà chưa hay chạm 429.
+  maxConcurrentProjects: envInt("MAX_CONCURRENT_PROJECTS", 3),
+
   // Gmail — hỏi xác nhận qua Telegram trước khi gửi/xóa email (GMAIL_REQUIRE_CONFIRM=0 để tắt)
   gmailRequireConfirm: process.env.GMAIL_REQUIRE_CONFIRM !== "0",
 

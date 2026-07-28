@@ -10,10 +10,12 @@ import {
   ensureProject,
   getCurrentProject,
   listProjects,
+  normalizeProjectName,
   resolveProjectPath,
   setCurrentProject,
   type Project,
 } from "../db/projects.ts";
+import { isQueryActive, listRunning, stopAllQueries, stopQuery } from "./lanes.ts";
 import { getQueryStats, getUsageByPeriod, type PeriodUsage } from "../db/queries.ts";
 import { clearUserModel, getUserModel, setUserModel } from "../db/user-model.ts";
 import { deleteFact, getFactById, getUserFacts, countFacts } from "../memory/repository.ts";
@@ -29,10 +31,8 @@ import { createNewsDigest } from "../scheduler/news-digest.ts";
 // Bot start time — để tính uptime
 const botStartTime = Date.now();
 
-// --- Tracking active queries ---
-// Map<userId, AbortController>
-// Khi user gõ /stop, lấy controller ra và .abort()
-export const activeQueries = new Map<number, AbortController>();
+// Sổ query đang chạy nằm ở lanes.ts — khoá theo (user, project) chứ không theo
+// mỗi user nữa, vì nhiều project chạy song song được.
 
 /**
  * /start — Chào mừng và hướng dẫn sử dụng
@@ -48,11 +48,11 @@ export async function handleStart(ctx: Context): Promise<void> {
       `🔍 Nghiên cứu — tìm kiếm, tổng hợp thông tin\n` +
       `📁 File — đọc, phân tích file bạn gửi\n\n` +
       `Lệnh:\n` +
-      `/p — Chuyển project\n` +
+      `/p — Chuyển project (việc cũ vẫn chạy nền)\n` +
       `/new — Phiên hội thoại mới\n` +
       `/resume — Tiếp tục phiên cũ\n` +
       `/model — Đổi model AI\n` +
-      `/stop — Dừng query đang chạy\n` +
+      `/stop [tên|all] — Dừng query đang chạy\n` +
       `/status — Xem trạng thái\n` +
       `/usage — Token đã dùng theo kỳ\n` +
       `/memory — Xem bộ nhớ dài hạn\n` +
@@ -144,6 +144,9 @@ export function formatProjectList(
   // Tham số tuỳ chọn cho test hermetic (trỏ vào thư mục tạm) — mặc định dùng
   // đúng baseDir thật mà agent chạy.
   baseDir: string = config.claudeWorkingDir,
+  // Project đang có query chạy. Truyền vào thay vì tự tra để hàm này không phụ
+  // thuộc state toàn cục của lanes.ts khi test.
+  running: Set<string> = new Set(),
 ): string {
   if (projects.length === 0) {
     return "📁 Chưa có project nào.\n\nGõ `/p <tên>` để tạo, ví dụ: `/p my-assistant`";
@@ -151,6 +154,7 @@ export function formatProjectList(
 
   const lines = projects.map((p) => {
     const mark = p.name === current ? "▸" : " ";
+    const busy = running.has(p.name) ? " ⏳" : "";
     // ⚠️ = thư mục làm việc đã chốt (`p.path`, chính là cwd của agent) không còn
     // khớp với thư mục riêng của project trên đĩa. Hai trường hợp đều phải bắt:
     //   1. Chốt vào baseDir vì lúc tạo project chưa có thư mục riêng — kể cả khi
@@ -159,12 +163,13 @@ export function formatProjectList(
     //   2. Thư mục đã chốt bị xoá sau đó.
     const own = resolveProjectPath(p.name, baseDir);
     const warn = own.exists && own.path === p.path ? "" : " ⚠️";
-    return `${mark} ${p.name} — ${p.sessionCount} phiên · ${timeAgo(p.lastUsedAt)}${warn}`;
+    return `${mark} ${p.name} — ${p.sessionCount} phiên · ${timeAgo(p.lastUsedAt)}${busy}${warn}`;
   });
   // Không project nào được đánh dấu ▸ thì phải nói thẳng, nếu không anh nhìn
   // danh sách mà không biết mình đang đứng ở đâu.
   const footer = current ? "" : "\n  (đang ở: không project)";
-  return `📁 Project đang có:\n${lines.join("\n")}${footer}`;
+  const legend = running.size > 0 ? "\n\n⏳ = đang chạy (vẫn chạy tiếp khi anh /p đi chỗ khác)" : "";
+  return `📁 Project đang có:\n${lines.join("\n")}${footer}${legend}`;
 }
 
 /** Đối số của /p mang nghĩa "thoát project, về trò chuyện chung". */
@@ -180,7 +185,10 @@ export async function handleProject(ctx: Context): Promise<void> {
   const arg = (ctx.match as string | undefined)?.trim() ?? "";
 
   if (!arg) {
-    await ctx.reply(formatProjectList(listProjects(), getCurrentProject(userId)));
+    const running = new Set(listRunning(userId).map((r) => r.project));
+    await ctx.reply(
+      formatProjectList(listProjects(), getCurrentProject(userId), config.claudeWorkingDir, running),
+    );
     return;
   }
 
@@ -220,6 +228,14 @@ export async function handleProject(ctx: Context): Promise<void> {
     text += `\n⚠️ Thư mục đã chốt không còn tồn tại`;
   }
   if (session) text += `\n📝 Tiếp phiên: "${session.title}"`;
+  // Chuyển project không giết việc đang chạy — nói ra để anh biết nó vẫn sống,
+  // và biết đường quay lại xem thay vì tưởng đã mất.
+  if (isQueryActive(userId, project.name)) text += `\n⏳ Project này đang có việc chạy dở`;
+
+  const elsewhere = listRunning(userId).filter((r) => r.project !== project.name);
+  if (elsewhere.length > 0) {
+    text += `\n🏃 Vẫn chạy nền: ${elsewhere.map((r) => projectLabel(r.project)).join(", ")}`;
+  }
 
   await ctx.reply(text);
 }
@@ -231,14 +247,26 @@ export async function handleStatus(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
   if (userId === undefined) return;
 
-  const isProcessing = activeQueries.has(userId);
   const project = getCurrentProject(userId);
   const session = getActiveSession(userId, project);
   const uptime = formatUptime(Date.now() - botStartTime);
 
-  const statusText = isProcessing
-    ? "⏳ Đang xử lý query..."
-    : "✅ Sẵn sàng nhận lệnh";
+  // Lane xếp hàng chờ slot cũng nằm trong sổ — tách ra, nếu không /status hiện
+  // những câu vô nghĩa kiểu "Đang chạy 5/3".
+  const active = listRunning(userId).filter((r) => !r.waiting);
+  const queued = listRunning(userId).filter((r) => r.waiting);
+
+  const statusLines: string[] = [];
+  if (active.length > 0) {
+    statusLines.push(`🏃 Đang chạy ${active.length}/${config.maxConcurrentProjects}:`);
+    for (const r of active) {
+      statusLines.push(`   • ${projectLabel(r.project)} — ${Math.round((Date.now() - r.startedAt) / 1000)}s`);
+    }
+  }
+  if (queued.length > 0) {
+    statusLines.push(`⏳ Chờ tới lượt: ${queued.map((r) => projectLabel(r.project)).join(", ")}`);
+  }
+  const statusText = statusLines.length > 0 ? statusLines.join("\n") : "✅ Sẵn sàng nhận lệnh";
 
   const sessionInfo = session
     ? `📝 Session: ${session.title}\n   Tạo: ${timeAgo(session.createdAt)}`
@@ -547,23 +575,73 @@ export async function handleMemory(ctx: Context): Promise<void> {
   }
 }
 
+/** Tên project cho người đọc — chuỗi rỗng là "trò chuyện chung". */
+function projectLabel(project: string): string {
+  return project || "trò chuyện chung";
+}
+
+/** Đối số của /stop mang nghĩa "dừng hết". */
+const STOP_ALL_ARGS = new Set(["all", "hết", "het", "tất cả", "tat ca"]);
+
 /**
- * /stop — Dừng query đang chạy
+ * /stop — dừng query của project đang mở
+ * /stop <tên> — dừng đúng project đó
+ * /stop all — dừng hết
  *
- * Lấy AbortController của user từ activeQueries
- * và gọi .abort() để hủy request tới Claude.
+ * Nhiều project chạy song song được nên "dừng query" đã hết là một hành động
+ * không mơ hồ: không chỉ rõ thì chỉ dừng chỗ anh đang đứng, tuyệt đối không
+ * quơ luôn việc của project khác.
  */
 export async function handleStop(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
   if (userId === undefined) return;
 
-  const controller = activeQueries.get(userId);
-  if (controller) {
-    controller.abort();
-    activeQueries.delete(userId);
-    await ctx.reply("⏹ Đã dừng query.");
-  } else {
-    await ctx.reply("ℹ️ Không có query nào đang chạy.");
+  const arg = (ctx.match as string | undefined)?.trim().toLowerCase() ?? "";
+
+  if (STOP_ALL_ARGS.has(arg)) {
+    const stopped = stopAllQueries(userId);
+    await ctx.reply(
+      stopped.length > 0
+        ? `⏹ Đã dừng ${stopped.length} query: ${stopped.map(projectLabel).join(", ")}`
+        : "ℹ️ Không có query nào đang chạy.",
+    );
+    return;
   }
+
+  // Không có đối số → project đang mở. Có đối số → đúng project đó (kể cả khi
+  // anh đang đứng ở chỗ khác).
+  let target: string;
+  if (!arg) {
+    target = getCurrentProject(userId);
+  } else if (EXIT_PROJECT_ARGS.has(arg)) {
+    target = "";
+  } else {
+    const name = normalizeProjectName(arg);
+    if (name === null) {
+      await ctx.reply("❌ Tên project không hợp lệ.\n\nDùng `/stop`, `/stop <tên>` hoặc `/stop all`.", {
+        parse_mode: "Markdown",
+      });
+      return;
+    }
+    target = name;
+  }
+
+  if (stopQuery(userId, target)) {
+    await ctx.reply(`⏹ Đã dừng query ở ${projectLabel(target)}.`);
+    return;
+  }
+
+  // Không có gì để dừng ở đó — nhưng chỗ khác có thì phải nói ra, nếu không anh
+  // tưởng đã dừng hết rồi mà quota vẫn cháy ngầm.
+  const running = listRunning(userId);
+  if (running.length === 0) {
+    await ctx.reply("ℹ️ Không có query nào đang chạy.");
+    return;
+  }
+  await ctx.reply(
+    `ℹ️ ${projectLabel(target)} không chạy gì.\n\n` +
+      `🏃 Đang chạy: ${running.map((r) => projectLabel(r.project)).join(", ")}\n` +
+      `Dùng /stop <tên> hoặc /stop all.`,
+  );
 }
 

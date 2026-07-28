@@ -172,12 +172,26 @@ skills/                   # Knowledge base (file .md, tự động load)
 | `/news` | Lấy digest tin công nghệ ngay, không đợi cron |
 | `/skills` | Danh sách skill đang load |
 | `/reload` | Reload skills không cần restart |
-| `/stop` | Dừng query đang chạy |
+| `/stop [tên\|all]` | Dừng query: không tham số → project đang mở; `/stop <tên>` → đúng project đó; `/stop all` → tất cả |
 
 ## Multi-project
 
 Mỗi project giữ một phiên hội thoại riêng, nên rời `funlife` giữa chừng sang `my-assistant`
 làm việc khác rồi quay lại thì mạch cũ vẫn còn.
+
+**Các project chạy song song.** `/p` chuyển chỗ đứng chứ không dừng việc: giao task cho
+`funlife` rồi `/p my-assistant` nhắn tiếp, cả hai cùng chạy. Chi tiết:
+
+- Tối đa `MAX_CONCURRENT_PROJECTS` (mặc định 3) project gọi Claude cùng lúc; quá thì tin
+  nhắn xếp hàng và hiện "⏳ Đang chờ — N project khác đang chạy". Subscription dùng chung
+  hạn mức 5h nên tăng số này là tăng tốc độ đốt quota tương ứng.
+- Trong **cùng một project** thì vẫn tuần tự (tối đa 3 tin xếp hàng) — hai query cùng
+  `resume` một session sẽ ghi đè transcript của nhau.
+- Project của một tin nhắn được chốt **lúc anh gửi**, không phải lúc nó chạy: gửi xong rồi
+  `/p` đi chỗ khác vẫn không làm tin đó chạy nhầm thư mục.
+- Kết quả đè lên đúng tin "⏳ Đang xử lý" của nó, giữ nguyên vị trí trong mạch chat. Nếu tin
+  đó đã trôi lên trên thì bot gửi thêm một dòng `✅ [tên] xong` ở cuối chat, reply tới nó.
+- `/status` liệt kê project đang chạy kèm số giây; `/p` đánh dấu ⏳ cạnh project bận.
 
 - `/p` — xem project đang có
 - `/p <tên>` — chuyển sang project, tự tạo nếu chưa có

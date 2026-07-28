@@ -1300,3 +1300,255 @@ test("fact thiếu scope rơi vào project hiện tại, không thành fact chun
 
   expect(row?.project).toBe("gamma");
 });
+
+// ============================================================
+// Nhiều project chạy song song — lane queue, van giới hạn, /stop theo lane
+// ============================================================
+// Đặt cuối file cùng các test cần provider.ts thật. Mọi test dưới đây phải tự
+// __resetLanes(): ba cơ chế trong lanes.ts đều là state toàn cục sống suốt đời
+// process, không dọn thì test này rò sang test kia.
+
+import {
+  __resetLanes,
+  acquireSlot,
+  hasFreeSlot,
+  isQueryActive,
+  laneQueueDepth,
+  markQueryStarted,
+  listRunning,
+  registerQuery,
+  runInLane,
+  runningCount,
+  stopAllQueries,
+  stopQuery,
+  waitingCount,
+} from "../src/telegram/lanes.ts";
+import {
+  __resetChatActivity,
+  noteChatMessage,
+  pingLabel,
+  progressHeader,
+  wasPushedUp,
+} from "../src/telegram/bot.ts";
+
+/** Promise mở được từ bên ngoài — giữ một lane "đang chạy" bao lâu tuỳ ý. */
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+/** Nhường event loop để mọi microtask đang chờ được chạy hết. */
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+test("lane của hai project chạy chồng nhau, tin cùng project vẫn nối đuôi", async () => {
+  __resetLanes();
+  const order: string[] = [];
+  const alpha = deferred();
+  const beta = deferred();
+
+  const p1 = runInLane(7, "alpha", async () => {
+    order.push("alpha-1 bắt đầu");
+    await alpha.promise;
+    order.push("alpha-1 xong");
+  });
+  const p2 = runInLane(7, "alpha", async () => {
+    order.push("alpha-2 bắt đầu");
+  });
+  const p3 = runInLane(7, "beta", async () => {
+    order.push("beta bắt đầu");
+    await beta.promise;
+  });
+
+  await tick();
+  // Đây là toàn bộ điểm của thay đổi: beta chạy ngay dù alpha đang bận,
+  // còn alpha-2 vẫn phải đợi alpha-1 (hai query cùng resume một session_id
+  // sẽ ghi đè transcript của nhau).
+  expect(order).toEqual(["alpha-1 bắt đầu", "beta bắt đầu"]);
+
+  alpha.resolve();
+  beta.resolve();
+  await Promise.all([p1, p2, p3]);
+
+  expect(order.indexOf("alpha-1 xong")).toBeLessThan(order.indexOf("alpha-2 bắt đầu"));
+});
+
+test("queue đầy của một project không chặn project khác", async () => {
+  __resetLanes();
+  const held = deferred();
+  let overflowCount = 0;
+  const overflow = async () => {
+    overflowCount++;
+  };
+
+  const running = [
+    runInLane(8, "alpha", async () => void (await held.promise), overflow),
+    runInLane(8, "alpha", async () => {}, overflow),
+    runInLane(8, "alpha", async () => {}, overflow),
+  ];
+  expect(laneQueueDepth(8, "alpha")).toBe(3);
+
+  // Tin thứ 4 của alpha bị từ chối — nhưng phải báo, không nuốt im
+  running.push(runInLane(8, "alpha", async () => {}, overflow));
+  expect(overflowCount).toBe(1);
+
+  let betaRan = false;
+  const beta = runInLane(8, "beta", async () => {
+    betaRan = true;
+  }, overflow);
+
+  held.resolve();
+  await Promise.all([...running, beta]);
+
+  expect(betaRan).toBe(true);
+  expect(overflowCount).toBe(1);
+});
+
+test("van giới hạn không cho vượt trần, nhả slot thì chuyển thẳng cho người chờ", async () => {
+  __resetLanes();
+  const original = config.maxConcurrentProjects;
+  config.maxConcurrentProjects = 2;
+
+  try {
+    const first = await acquireSlot();
+    const second = await acquireSlot();
+    expect(runningCount()).toBe(2);
+    expect(hasFreeSlot()).toBe(false);
+
+    const third: { release: (() => void) | null } = { release: null };
+    const pending = acquireSlot().then((r) => {
+      third.release = r;
+    });
+
+    await tick();
+    expect(third.release).toBeNull();
+    expect(waitingCount()).toBe(1);
+
+    first!();
+    await pending;
+    expect(third.release).not.toBeNull();
+    // Slot chuyển thẳng: nếu nhả rồi mới cho người chờ tự xin lại, khoảng hở giữa
+    // hai thao tác đủ để một acquireSlot khác chen vào và vượt trần.
+    expect(runningCount()).toBe(2);
+
+    second!();
+    third.release!();
+    expect(runningCount()).toBe(0);
+  } finally {
+    config.maxConcurrentProjects = original;
+  }
+});
+
+test("/stop lúc còn xếp hàng chờ slot thì bỏ hẳn, không cuỗm slot của người khác", async () => {
+  __resetLanes();
+  const original = config.maxConcurrentProjects;
+  config.maxConcurrentProjects = 1;
+
+  try {
+    const held = await acquireSlot();
+    const controller = new AbortController();
+    const pending = acquireSlot(controller.signal);
+    await tick();
+    expect(waitingCount()).toBe(1);
+
+    controller.abort();
+    // Không có nhánh này thì /stop chỉ có tác dụng khi slot trống — anh gõ /stop,
+    // bot nói "đã dừng", mà query vẫn chạy vài phút sau.
+    expect(await pending).toBeNull();
+    expect(waitingCount()).toBe(0);
+
+    held!();
+    expect(runningCount()).toBe(0);
+  } finally {
+    config.maxConcurrentProjects = original;
+  }
+});
+
+test("/stop chỉ giết query của đúng project", () => {
+  __resetLanes();
+  const alpha = new AbortController();
+  const beta = new AbortController();
+  registerQuery(9, "alpha", alpha);
+  registerQuery(9, "beta", beta);
+
+  expect(stopQuery(9, "alpha")).toBe(true);
+  expect(alpha.signal.aborted).toBe(true);
+  expect(beta.signal.aborted).toBe(false);
+  expect(isQueryActive(9, "alpha")).toBe(false);
+  expect(isQueryActive(9, "beta")).toBe(true);
+
+  // Dừng lần hai phải trả false để handler nói "không có gì đang chạy"
+  expect(stopQuery(9, "alpha")).toBe(false);
+});
+
+test("stopAllQueries dừng hết của một user, không đụng user khác", () => {
+  __resetLanes();
+  const mine = new AbortController();
+  const alsoMine = new AbortController();
+  const stranger = new AbortController();
+  registerQuery(10, "alpha", mine);
+  registerQuery(10, "", alsoMine); // trò chuyện chung cũng là một lane
+  registerQuery(11, "alpha", stranger);
+
+  expect(stopAllQueries(10).sort()).toEqual(["", "alpha"]);
+  expect(mine.signal.aborted).toBe(true);
+  expect(alsoMine.signal.aborted).toBe(true);
+  expect(stranger.signal.aborted).toBe(false);
+  expect(listRunning(11)).toHaveLength(1);
+});
+
+test("chỉ ping khi tin kết quả đã bị đẩy lên trên", () => {
+  __resetChatActivity();
+
+  noteChatMessage(100, 5);
+  expect(wasPushedUp(100, 5)).toBe(false); // vẫn ở đáy chat → im lặng
+
+  noteChatMessage(100, 9);
+  expect(wasPushedUp(100, 5)).toBe(true); // đã trôi → ping
+
+  expect(wasPushedUp(200, 5)).toBe(false); // mốc không lây sang chat khác
+
+  // Tin đến trễ mang id nhỏ hơn không được kéo mốc lùi lại
+  noteChatMessage(100, 3);
+  expect(wasPushedUp(100, 9)).toBe(false);
+});
+
+test("nhãn project chỉ hiện khi đang ở trong project", () => {
+  expect(progressHeader("basotien")).toBe("📁 basotien\n");
+  expect(pingLabel("basotien")).toBe("[basotien] ");
+  // Trò chuyện chung không có gì để phân biệt — thêm nhãn chỉ tổ ồn
+  expect(progressHeader("")).toBe("");
+  expect(pingLabel("")).toBe("");
+});
+
+test("formatProjectList đánh dấu ⏳ đúng project đang chạy", () => {
+  const out = formatProjectList(
+    [
+      { name: "alpha", path: "/dev/alpha", createdAt: 0, lastUsedAt: Date.now(), sessionCount: 3 },
+      { name: "beta", path: "/dev/beta", createdAt: 0, lastUsedAt: Date.now(), sessionCount: 1 },
+    ],
+    "beta",
+    "/dev",
+    new Set(["alpha"]),
+  );
+
+  const lines = out.split("\n");
+  expect(lines.find((l) => l.includes("alpha"))).toContain("⏳");
+  expect(lines.find((l) => l.includes("beta"))).not.toContain("⏳");
+});
+
+test("query đang xếp hàng không bị đếm nhầm thành đang chạy", () => {
+  __resetLanes();
+  const controller = new AbortController();
+  registerQuery(12, "alpha", controller);
+
+  // Vào sổ từ lúc mới xin slot (để /stop với tới được), nhưng chưa phải "đang chạy"
+  expect(listRunning(12)[0]?.waiting).toBe(true);
+
+  markQueryStarted(12, "alpha", controller);
+  expect(listRunning(12)[0]?.waiting).toBe(false);
+
+  // Controller lạ không được đụng vào trạng thái của query đang chạy
+  markQueryStarted(12, "alpha", new AbortController());
+  expect(listRunning(12)[0]?.waiting).toBe(false);
+});

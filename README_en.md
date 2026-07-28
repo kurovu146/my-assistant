@@ -172,12 +172,27 @@ skills/                   # Knowledge base (.md files, auto-loaded)
 | `/news` | Fetch the tech digest now instead of waiting for the cron |
 | `/skills` | List loaded skills |
 | `/reload` | Reload skills without restart |
-| `/stop` | Abort a running query |
+| `/stop [name\|all]` | Abort a query: no argument → the current project; `/stop <name>` → that project; `/stop all` → every one |
 
 ## Multi-project
 
 Each project keeps its own conversation session, so leaving `funlife` mid-task for
 `my-assistant` and coming back later resumes where you left off.
+
+**Projects run in parallel.** `/p` moves where you stand, it does not stop work in
+progress: hand `funlife` a task, `/p my-assistant`, keep typing — both run at once.
+
+- At most `MAX_CONCURRENT_PROJECTS` (default 3) projects call Claude simultaneously; past
+  that, messages queue and show "⏳ waiting — N other projects running". A subscription
+  shares one 5-hour budget, so raising this raises how fast you burn it.
+- Within a **single project** messages still run serially (queue depth 3) — two queries
+  resuming the same session would overwrite each other's transcript.
+- A message's project is fixed **when you send it**, not when it runs: sending a task and
+  then switching away never makes it run in the wrong directory.
+- The result replaces that message's own "⏳ processing" bubble, keeping its place in the
+  chat. If the bubble has scrolled out of sight, the bot posts a short `✅ [name] done`
+  line at the bottom replying to it.
+- `/status` lists running projects with elapsed seconds; `/p` marks busy ones with ⏳.
 
 - `/p` — list projects
 - `/p <name>` — switch to a project, creating it on first use

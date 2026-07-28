@@ -33,8 +33,16 @@ import {
   handleNews,
   handleSkills,
   handleProject,
-  activeQueries,
 } from "./commands.ts";
+import {
+  acquireSlot,
+  hasFreeSlot,
+  markQueryStarted,
+  registerQuery,
+  runInLane,
+  runningCount,
+  unregisterQuery,
+} from "./lanes.ts";
 
 // ============================================================
 // Sanitize filename — prevent path traversal attacks
@@ -126,51 +134,51 @@ export function buildUploadPrompt(label: string, fileName: string, caption: stri
 }
 
 // ============================================================
-// Lane Queue — per-user serial queue (inspired by OpenClaw)
+// Nhãn project + phát hiện tin đã trôi
 // ============================================================
-// Key: userId (single channel = Telegram)
-// Queue depth limit: 3 — tránh backlog quá dài
-// ============================================================
-
-const userLocks = new Map<number, Promise<void>>();
-const userQueueDepth = new Map<number, number>();
-const MAX_QUEUE_DEPTH = 3;
 
 /**
- * Queue handler per user (lane queue pattern).
- * Tin nhắn xếp hàng, chạy tuần tự. Max 3 tin trong queue.
+ * Dòng nhãn đứng đầu tin tiến trình. Rỗng khi đang trò chuyện chung — lúc đó
+ * không có gì để phân biệt nên thêm nhãn chỉ tổ ồn.
  */
-function withUserLock(userId: number, fn: () => Promise<void>, onOverflow?: () => Promise<void>): Promise<void> {
-  const depth = userQueueDepth.get(userId) || 0;
+export function progressHeader(project: string): string {
+  return project ? `📁 ${project}\n` : "";
+}
 
-  // Queue overflow — quá 3 tin đang chờ
-  if (depth >= MAX_QUEUE_DEPTH) {
-    onOverflow?.().catch((err) => logger.error("❌ Overflow notify error:", err));
-    return Promise.resolve();
-  }
+/** Tiền tố `[tên] ` cho dòng ping, rỗng khi đang trò chuyện chung. */
+export function pingLabel(project: string): string {
+  return project ? `[${project}] ` : "";
+}
 
-  userQueueDepth.set(userId, depth + 1);
+/**
+ * ID tin nhắn mới nhất từng thấy trong mỗi chat — cả tin anh gửi lẫn tin bot gửi.
+ *
+ * Telegram cấp message_id tăng dần theo từng chat, nên "tin X có còn ở đáy chat
+ * không" chỉ là so sánh số. Đây là cách duy nhất bot biết được kết quả của một
+ * query chạy nền đã bị đẩy lên trên hay chưa: Bot API không có lệnh nào hỏi
+ * "tin nào đang ở cuối chat".
+ */
+const lastSeenMessage = new Map<number, number>();
 
-  const prev = userLocks.get(userId) || Promise.resolve();
-  // Handler không await promise này → phải tự catch, nếu không Bun kill process
-  // vì unhandled rejection (ctx.reply lỗi 429/network là đủ).
-  const current = prev.then(fn, fn).catch((err) => {
-    logger.error("❌ Lane queue error:", err instanceof Error ? err.message : err);
-  });
-  userLocks.set(userId, current);
+export function noteChatMessage(chatId: number, messageId: number): void {
+  const seen = lastSeenMessage.get(chatId) ?? 0;
+  if (messageId > seen) lastSeenMessage.set(chatId, messageId);
+}
 
-  current.finally(() => {
-    const d = userQueueDepth.get(userId) || 1;
-    if (d <= 1) {
-      userQueueDepth.delete(userId);
-    } else {
-      userQueueDepth.set(userId, d - 1);
-    }
-    if (userLocks.get(userId) === current) {
-      userLocks.delete(userId);
-    }
-  });
-  return current;
+/**
+ * Tin `messageId` đã bị đẩy lên trên (có tin mới hơn nằm dưới nó) hay chưa.
+ *
+ * Dùng để quyết định có ping hay không, thay vì so "project này có phải project
+ * anh đang đứng không". So theo vị trí đúng hơn hẳn: anh /p rời đi rồi /p quay
+ * lại đúng project đó thì kết quả vẫn nằm tít trên, vẫn cần ping.
+ */
+export function wasPushedUp(chatId: number, messageId: number): boolean {
+  return (lastSeenMessage.get(chatId) ?? 0) > messageId;
+}
+
+/** Chỉ dùng trong test — bảng trên sống suốt đời process. */
+export function __resetChatActivity(): void {
+  lastSeenMessage.clear();
 }
 
 // ============================================================
@@ -181,6 +189,16 @@ export function createBot(): Bot {
   const bot = new Bot(config.telegramToken);
 
   bot.use(authMiddleware);
+
+  // Ghi nhận mọi tin nhắn đi vào — mốc để biết kết quả của query chạy nền có bị
+  // đẩy lên trên hay không. Đặt sau authMiddleware để tin của người lạ không
+  // làm nhiễu mốc.
+  bot.use(async (ctx, next) => {
+    if (ctx.chat?.id !== undefined && ctx.message?.message_id !== undefined) {
+      noteChatMessage(ctx.chat.id, ctx.message.message_id);
+    }
+    await next();
+  });
 
   bot.command("start", handleStart);
   bot.command("p", handleProject);
@@ -244,12 +262,20 @@ async function safeEditText(
   }
 }
 
-async function safeSendMessage(ctx: Context, text: string): Promise<void> {
+/** Gửi tin, tự hạ xuống plain text nếu Markdown hỏng. Ghi nhận id để biết tin nào ở đáy chat. */
+async function safeSendMessage(ctx: Context, text: string, replyTo?: number): Promise<void> {
+  // allow_sending_without_reply: tin được trỏ tới có thể đã bị xoá (edit hỏng →
+  // nhánh xoá-rồi-gửi-lại bên dưới), lúc đó vẫn phải gửi được thay vì ném 400.
+  const extra = replyTo
+    ? { reply_parameters: { message_id: replyTo, allow_sending_without_reply: true } }
+    : {};
+  let sent;
   try {
-    await ctx.reply(text, { parse_mode: "Markdown" });
+    sent = await ctx.reply(text, { parse_mode: "Markdown", ...extra });
   } catch {
-    await ctx.reply(text);
+    sent = await ctx.reply(text, extra);
   }
+  if (ctx.chat?.id !== undefined) noteChatMessage(ctx.chat.id, sent.message_id);
 }
 
 // ============================================================
@@ -257,7 +283,8 @@ async function safeSendMessage(ctx: Context, text: string): Promise<void> {
 // ============================================================
 //
 // Chứa toàn bộ logic chung:
-// - AbortController + activeQueries
+// - AbortController + sổ query đang chạy (lanes.ts)
+// - Van giới hạn số project chạy song song
 // - Typing indicator liên tục
 // - Streaming state + flushStream (throttled 1.5s)
 // - askClaude call với progress callback
@@ -272,6 +299,13 @@ interface StreamingOptions {
   prompt: string;
   /** User ID (Telegram) */
   userId: number;
+  /**
+   * Project của lượt này — chốt từ lúc NHẬN tin nhắn, không tra lại ở đây.
+   *
+   * Tra lại tại chỗ là sai: tin xếp hàng có thể chạy vài phút sau, lúc đó anh đã
+   * `/p` sang project khác và việc này sẽ chạy nhầm thư mục, nhầm phiên, nhầm memory.
+   */
+  project: string;
   /** Context object (grammy) */
   ctx: Context;
   /** Chat ID */
@@ -289,8 +323,10 @@ interface StreamingOptions {
 }
 
 async function handleQueryWithStreaming(options: StreamingOptions): Promise<void> {
-  const { prompt, userId, ctx, chatId, messageId, sessionTitle, errorLabel, onComplete, modelOverride } = options;
+  const { prompt, userId, project, ctx, chatId, messageId, sessionTitle, errorLabel, onComplete, modelOverride } =
+    options;
   const startTime = Date.now();
+  const header = progressHeader(project);
 
   // finally luôn chạy kể cả khi return sớm → chỉ cho cleanup chạy đúng 1 lần
   let cleanupDone = false;
@@ -304,9 +340,11 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
     }
   };
 
-  // AbortController — /stop sẽ abort signal này
+  // AbortController — /stop sẽ abort signal này.
+  // Ghi sổ NGAY, trước cả lúc xin slot: query còn đang xếp hàng chờ slot vẫn phải
+  // /stop được, nếu không anh gõ /stop rồi mà nó vẫn chạy vài phút sau.
   const controller = new AbortController();
-  activeQueries.set(userId, controller);
+  registerQuery(userId, project, controller);
 
   // Typing indicator liên tục
   const typingInterval = setInterval(async () => {
@@ -357,14 +395,35 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
           : preview + suffix)
       : idle;
 
-    await safeEditText(ctx.api, chatId, messageId, displayText, "Markdown");
+    await safeEditText(ctx.api, chatId, messageId, header + displayText, "Markdown");
     editPending = false;
   };
 
+  // Nhả trong `finally` chung ở cuối — hàm này có nhiều nhánh return sớm, nhả tay
+  // ở từng nhánh là kiểu chắc chắn sẽ quên một chỗ và treo slot vĩnh viễn.
+  let releaseSlot: (() => void) | null = null;
+
   try {
-    // Lấy project hiện tại của user ngay tại đây (không dùng biến toàn cục) —
-    // mỗi request phải tự tra vì user có thể đổi project giữa các lượt nhắn.
-    const project = getCurrentProject(userId);
+    // Van giới hạn: quá nhiều project chạy cùng lúc thì chờ tới lượt. Báo rõ đang
+    // CHỜ chứ không phải đang chạy — nếu không anh nhìn "Đang xử lý" đứng im hàng
+    // phút và tưởng bot treo.
+    if (!hasFreeSlot()) {
+      await safeEditText(
+        ctx.api,
+        chatId,
+        messageId,
+        `${header}⏳ Đang chờ — ${runningCount()} project khác đang chạy`,
+      );
+    }
+
+    releaseSlot = await acquireSlot(controller.signal);
+    if (!releaseSlot) {
+      // Bị /stop lúc còn xếp hàng — chưa gọi Claude lần nào nên không có gì để dọn.
+      await safeEditText(ctx.api, chatId, messageId, `${header}⏹ Đã dừng khi đang chờ tới lượt.`);
+      return;
+    }
+    markQueryStarted(userId, project, controller);
+
     const session = getActiveSession(userId, project);
     const sessionId = session?.sessionId;
 
@@ -400,18 +459,22 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
     // Clear typing
     clearInterval(typingInterval);
 
+    // Tin kết quả đã bị đẩy lên trên chưa — phải chốt NGAY ĐÂY, trước khi bot gửi
+    // thêm bất cứ tin nào, vì chính những tin đó cũng đẩy mốc "mới nhất" lên.
+    const pushedUp = wasPushedUp(chatId, messageId);
+
     // Xử lý lỗi — hiển thị rõ loại lỗi
     if (response.error) {
       const hasPartial = response.text && response.text.length > 0;
       if (hasPartial) {
         // Có kết quả bán phần → gửi kèm thông báo lỗi
-        await safeEditText(ctx.api, chatId, messageId, `${response.text}\n\n⚠️ ${response.error}`);
+        await safeEditText(ctx.api, chatId, messageId, `${header}${response.text}\n\n⚠️ ${response.error}`);
       } else {
-        await safeEditText(ctx.api, chatId, messageId, `❌ ${errorLabel}: ${response.error}`);
+        await safeEditText(ctx.api, chatId, messageId, `${header}❌ ${errorLabel}: ${response.error}`);
       }
-      // Cleanup trước khi return sớm — tránh AbortController bị orphan
-      activeQueries.delete(userId);
-      await runCleanup();
+      if (pushedUp) {
+        await safeSendMessage(ctx, `❌ ${pingLabel(project)}lỗi — bấm để xem ↖`, messageId);
+      }
       return;
     }
 
@@ -446,7 +509,11 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
     // Build final response with footer (token + time)
     const elapsed = (responseTimeMs / 1000).toFixed(1);
     let fullResponse = safeText;
+    // Nhãn project nằm ở footer chứ không ở đầu tin: đọc trên mobile thì câu trả
+    // lời phải là thứ đập vào mắt trước, còn "của project nào" chỉ cần khi anh
+    // ngoái lại tìm.
     const footerParts: string[] = [];
+    if (project) footerParts.push(`📁 ${project}`);
     const usageTotal = formatUsageTotal(response.usage);
     if (usageTotal) {
       footerParts.push(usageTotal);
@@ -471,6 +538,13 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
       await safeSendMessage(ctx, messages[i]!);
     }
 
+    // Ping: kết quả nằm tít trên, anh sẽ không thấy nếu không được trỏ tới.
+    // `editOk` sai nghĩa là kết quả vừa được gửi lại xuống đáy chat rồi — ping nữa
+    // là thừa và trỏ vào một tin đã bị xoá.
+    if (pushedUp && editOk) {
+      await safeSendMessage(ctx, `✅ ${pingLabel(project)}xong — bấm để xem ↖`, messageId);
+    }
+
     // Tier 1: Extract facts từ conversation (async, không block UX)
     if (!response.error) {
       extractFacts(userId, prompt, response.text, project).catch((e) => {
@@ -480,10 +554,11 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
     logger.error("❌ Message handler error:", errMsg);
-    await safeEditText(ctx.api, chatId, messageId, `❌ ${errorLabel}: ${errMsg}`);
+    await safeEditText(ctx.api, chatId, messageId, `${header}❌ ${errorLabel}: ${errMsg}`);
   } finally {
     clearInterval(typingInterval);
-    activeQueries.delete(userId);
+    releaseSlot?.();
+    unregisterQuery(userId, project, controller);
     // Cleanup callback (file deletion, etc.) — idempotent
     await runCleanup();
   }
@@ -506,16 +581,23 @@ async function handleTextMessage(ctx: Filter<Context, "message:text">): Promise<
     text = override.rest || text; // giữ text gốc nếu chỉ có prefix
   }
 
-  // Lane queue: chờ tin trước xong, max 3 tin trong queue
-  withUserLock(userId, async () => {
+  // Chốt project NGAY LÚC NÀY, không để handleQueryWithStreaming tự tra: tin này
+  // có thể nằm chờ vài phút, lúc chạy thì anh đã /p sang chỗ khác rồi.
+  const project = getCurrentProject(userId);
+
+  // Lane queue: chờ tin trước CỦA CÙNG PROJECT xong, max 3 tin trong queue.
+  // Project khác chạy song song, không liên quan.
+  runInLane(userId, project, async () => {
     await ctx.replyWithChatAction("typing");
-    const processingMsg = await ctx.reply("⏳ Đang xử lý...");
+    const processingMsg = await ctx.reply(`${progressHeader(project)}⏳ Đang xử lý...`);
+    noteChatMessage(ctx.chat.id, processingMsg.message_id);
 
     const sessionTitle = text.length > 50 ? text.slice(0, 50) + "..." : text;
 
     await handleQueryWithStreaming({
       prompt: text,
       userId,
+      project,
       ctx,
       chatId: ctx.chat.id,
       messageId: processingMsg.message_id,
@@ -524,7 +606,9 @@ async function handleTextMessage(ctx: Filter<Context, "message:text">): Promise<
       modelOverride,
     });
   }, async () => {
-    await ctx.reply("⚠️ Queue đầy (đang xử lý 3 tin). Vui lòng chờ hoặc /stop.");
+    await ctx.reply(
+      `⚠️ Queue đầy — ${project || "trò chuyện chung"} đang có 3 tin chờ. Chờ tí hoặc /stop.`,
+    );
   });
 }
 
@@ -538,13 +622,16 @@ async function handleDocument(ctx: Filter<Context, "message:document">): Promise
   const caption = ctx.message.caption || "Phân tích file này";
   if (userId === undefined || !doc) return;
 
-  withUserLock(userId, async () => {
+  const project = getCurrentProject(userId);
+
+  runInLane(userId, project, async () => {
     await ctx.replyWithChatAction("typing");
     // file_name là optional trong Bot API — thiếu tên vẫn phải xử lý được
     const safeName = sanitizeFilename(doc.file_name || `file_${Date.now()}`);
-    const processingMsg = await ctx.reply(`📄 Đang tải file ${safeName}...`);
+    const processingMsg = await ctx.reply(`${progressHeader(project)}📄 Đang tải file ${safeName}...`);
     const chatId = ctx.chat.id;
     const msgId = processingMsg.message_id;
+    noteChatMessage(chatId, msgId);
 
     try {
       // Download file
@@ -559,13 +646,19 @@ async function handleDocument(ctx: Filter<Context, "message:document">): Promise
       const tempPath = uploadPath(safeName);
       await Bun.write(tempPath, fileBuffer);
 
-      await safeEditText(ctx.api, chatId, msgId, `📄 Đã tải ${safeName}, đang phân tích...`);
+      await safeEditText(
+        ctx.api,
+        chatId,
+        msgId,
+        `${progressHeader(project)}📄 Đã tải ${safeName}, đang phân tích...`,
+      );
 
       const prompt = buildUploadPrompt(`File "${safeName}"`, safeName, caption);
 
       await handleQueryWithStreaming({
         prompt,
         userId,
+        project,
         ctx,
         chatId,
         messageId: msgId,
@@ -594,11 +687,14 @@ async function handlePhoto(ctx: Filter<Context, "message:photo">): Promise<void>
   const caption = ctx.message.caption || "Phân tích ảnh này";
   if (userId === undefined || !photos || photos.length === 0) return;
 
-  withUserLock(userId, async () => {
+  const project = getCurrentProject(userId);
+
+  runInLane(userId, project, async () => {
     await ctx.replyWithChatAction("typing");
-    const processingMsg = await ctx.reply("🖼 Đang tải ảnh...");
+    const processingMsg = await ctx.reply(`${progressHeader(project)}🖼 Đang tải ảnh...`);
     const chatId = ctx.chat.id;
     const msgId = processingMsg.message_id;
+    noteChatMessage(chatId, msgId);
 
     try {
       const photo = photos[photos.length - 1]!;
@@ -613,13 +709,14 @@ async function handlePhoto(ctx: Filter<Context, "message:photo">): Promise<void>
       const tempPath = uploadPath(fileName);
       await Bun.write(tempPath, imgBuffer);
 
-      await safeEditText(ctx.api, chatId, msgId, "🖼 Đã tải ảnh, đang phân tích...");
+      await safeEditText(ctx.api, chatId, msgId, `${progressHeader(project)}🖼 Đã tải ảnh, đang phân tích...`);
 
       const prompt = buildUploadPrompt("Ảnh", fileName, caption);
 
       await handleQueryWithStreaming({
         prompt,
         userId,
+        project,
         ctx,
         chatId,
         messageId: msgId,
