@@ -54,6 +54,22 @@ export function resolveProjectPath(
   }
 }
 
+/**
+ * Thư mục của project có còn tồn tại trên đĩa không.
+ *
+ * Dùng để cảnh báo trong danh sách `/p` khi thư mục bị xoá SAU khi project đã
+ * đăng ký — nếu không, agent sẽ âm thầm chạy trong thư mục gốc ở mọi tin nhắn
+ * mà không ai biết, vì cảnh báo lúc chọn project chỉ hiện đúng lúc gõ `/p <tên>`,
+ * không hiện lại khi chỉ xem danh sách (finding từ review Task 5).
+ */
+export function projectDirExists(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 // --- Project registry CRUD ---
 
 export interface Project {

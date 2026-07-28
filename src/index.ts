@@ -63,6 +63,7 @@ async function main() {
   //    User sẽ thấy danh sách lệnh khi gõ /
   await bot.api.setMyCommands([
     { command: "start", description: "Bắt đầu / Hướng dẫn" },
+    { command: "p", description: "Chuyển project" },
     { command: "new", description: "Phiên hội thoại mới" },
     { command: "resume", description: "Tiếp tục phiên cũ" },
     { command: "status", description: "Xem trạng thái & thống kê" },

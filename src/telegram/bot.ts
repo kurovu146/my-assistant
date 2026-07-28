@@ -28,6 +28,7 @@ import {
   handleUnmonitor,
   handleMonitors,
   handleMemory,
+  handleProject,
   activeQueries,
 } from "./commands.ts";
 
@@ -97,6 +98,7 @@ export function createBot(): Bot {
   bot.use(authMiddleware);
 
   bot.command("start", handleStart);
+  bot.command("p", handleProject);
   bot.command("new", handleNew);
   bot.command("resume", handleResume);
   bot.command("status", handleStatus);

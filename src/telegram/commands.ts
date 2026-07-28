@@ -5,7 +5,15 @@
 
 import type { Context } from "grammy";
 import { clearActiveSession, getActiveSession, getRecentSessions, setActiveSession } from "../db/sessions.ts";
-import { getCurrentProject } from "../db/projects.ts";
+import {
+  ensureProject,
+  getCurrentProject,
+  listProjects,
+  projectDirExists,
+  resolveProjectPath,
+  setCurrentProject,
+  type Project,
+} from "../db/projects.ts";
 import { getQueryStats, getUsageByPeriod, type PeriodUsage } from "../db/queries.ts";
 import { addMonitoredUrl, removeMonitoredUrl, getUserMonitoredUrls } from "../db/monitors.ts";
 import { getUserFacts, countFacts } from "../memory/repository.ts";
@@ -44,7 +52,8 @@ export async function handleStart(ctx: Context): Promise<void> {
       `/status — Xem trạng thái\n` +
       `/usage — Token đã dùng theo kỳ\n` +
       `/memory — Xem bộ nhớ dài hạn\n` +
-      `/reload — Reload skills\n\n` +
+      `/reload — Reload skills\n` +
+      `/p — Chuyển project\n\n` +
       `Gửi tin nhắn bất kỳ để bắt đầu! 🚀`,
   );
 }
@@ -120,6 +129,64 @@ export async function handleResumeCallback(ctx: Context): Promise<void> {
 }
 
 /**
+ * Dựng chuỗi danh sách project — tách riêng khỏi handler để test được
+ * mà không cần giả lập Context của grammY.
+ */
+export function formatProjectList(
+  projects: (Project & { sessionCount: number })[],
+  current: string,
+): string {
+  if (projects.length === 0) {
+    return "📁 Chưa có project nào.\n\nGõ `/p <tên>` để tạo, ví dụ: `/p my-assistant`";
+  }
+
+  const lines = projects.map((p) => {
+    const mark = p.name === current ? "▸" : " ";
+    // Thư mục có thể đã bị xoá sau khi project được đăng ký — nếu không cảnh báo
+    // ngay ở đây, anh sẽ không biết cho tới khi thấy agent chạy nhầm ở thư mục gốc.
+    const warn = projectDirExists(p.path) ? "" : " ⚠️";
+    return `${mark} ${p.name} — ${p.sessionCount} phiên · ${timeAgo(p.lastUsedAt)}${warn}`;
+  });
+  return `📁 Project đang có:\n${lines.join("\n")}`;
+}
+
+/**
+ * /p — xem danh sách project; /p <tên> — chuyển (tạo nếu chưa có)
+ */
+export async function handleProject(ctx: Context): Promise<void> {
+  const userId = ctx.from?.id;
+  if (userId === undefined) return;
+
+  const arg = (ctx.match as string | undefined)?.trim() ?? "";
+
+  if (!arg) {
+    await ctx.reply(formatProjectList(listProjects(), getCurrentProject(userId)));
+    return;
+  }
+
+  const result = ensureProject(arg);
+  if (!result) {
+    // Tên không hợp lệ → từ chối và giữ nguyên project hiện tại, không được
+    // âm thầm bỏ qua rồi vẫn coi như đã chuyển (tên này sẽ đi thẳng vào cwd của agent).
+    await ctx.reply("❌ Tên project không hợp lệ. Chỉ dùng chữ thường, số, `.`, `_`, `-` (tối đa 64 ký tự).");
+    return;
+  }
+
+  const { project, created } = result;
+  setCurrentProject(userId, project.name);
+
+  const { exists } = resolveProjectPath(project.name);
+  const session = getActiveSession(userId, project.name);
+
+  let text = created ? `✅ Tạo project ${project.name}` : `✅ Đã chuyển sang ${project.name}`;
+  text += `\n📂 ${project.path}`;
+  if (!exists) text += `\n⚠️ Không thấy thư mục riêng — dùng thư mục gốc`;
+  if (session) text += `\n📝 Tiếp phiên: "${session.title}"`;
+
+  await ctx.reply(text);
+}
+
+/**
  * /status — Xem trạng thái + thống kê (gộp /stats)
  */
 export async function handleStatus(ctx: Context): Promise<void> {
@@ -138,6 +205,9 @@ export async function handleStatus(ctx: Context): Promise<void> {
   const sessionInfo = session
     ? `📝 Session: ${session.title}\n   Tạo: ${timeAgo(session.createdAt)}`
     : "📝 Session: không có (gửi tin nhắn để tạo mới)";
+
+  // project rỗng nghĩa là chưa /p lần nào — agent vẫn chạy ở thư mục gốc như trước đây
+  const projectInfo = project ? `📁 Project: ${project}` : "📁 Project: (chưa chọn)";
 
   // Skills count (từ cache, không đọc disk)
   const skillInfo = `📚 Skills: ${getSkillCount()} loaded`;
@@ -171,6 +241,7 @@ export async function handleStatus(ctx: Context): Promise<void> {
       `⏱ Uptime: ${uptime}\n\n` +
       `🤖 Model: ${config.claudeModel}\n` +
       `🔑 Auth: ${config.authMode}\n` +
+      `${projectInfo}\n` +
       `${skillInfo}\n\n` +
       `${statsInfo}\n\n` +
       `${sessionInfo}`,

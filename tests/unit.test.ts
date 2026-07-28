@@ -16,6 +16,7 @@ import { db } from "../src/db/connection.ts";
 import { config } from "../src/config.ts";
 import { normalizeProjectName, resolveProjectPath, ensureProject, listProjects, getCurrentProject, setCurrentProject } from "../src/db/projects.ts";
 import { getActiveSession, createSession, clearActiveSession, getRecentSessions } from "../src/db/sessions.ts";
+import { formatProjectList } from "../src/telegram/commands.ts";
 import {
   bytesToEmbedding,
   cosineSimilarity,
@@ -160,6 +161,55 @@ test("listProjects đếm số phiên của từng project", () => {
 
   const found = listProjects().find((p) => p.name === "proj-a");
   expect(found?.sessionCount).toBe(1);
+});
+
+// --- /p: format danh sách project (Task 6) ---
+
+test("formatProjectList đánh dấu project đang mở", () => {
+  const out = formatProjectList(
+    [
+      { name: "alpha", path: "/dev/alpha", createdAt: 0, lastUsedAt: Date.now(), sessionCount: 3 },
+      { name: "beta", path: "/dev/beta", createdAt: 0, lastUsedAt: Date.now(), sessionCount: 1 },
+    ],
+    "beta",
+  );
+
+  expect(out).toContain("alpha");
+  expect(out).toContain("beta");
+  expect(out).toMatch(/▸\s*beta/); // project hiện tại có dấu ▸
+  expect(out).not.toMatch(/▸\s*alpha/);
+});
+
+test("formatProjectList hướng dẫn khi chưa có project nào", () => {
+  expect(formatProjectList([], "")).toContain("/p ");
+});
+
+test("formatProjectList đánh dấu ⚠️ khi thư mục project không còn tồn tại trên đĩa", () => {
+  // Mô phỏng đúng finding từ review Task 5: project đã đăng ký nhưng thư mục
+  // riêng bị xoá sau đó — nếu /p không cảnh báo ở đây, anh sẽ không biết cho
+  // tới khi thấy agent âm thầm chạy nhầm trong thư mục gốc.
+  const base = mkdtempSync(join(tmpdir(), "myasst-fmtlist-"));
+  const conPath = join(base, "con-thu-muc");
+  mkdirSync(conPath);
+  const mistPath = join(base, "da-bi-xoa");
+
+  try {
+    const out = formatProjectList(
+      [
+        { name: "con-thu-muc", path: conPath, createdAt: 0, lastUsedAt: Date.now(), sessionCount: 1 },
+        { name: "da-bi-xoa", path: mistPath, createdAt: 0, lastUsedAt: Date.now(), sessionCount: 2 },
+      ],
+      "",
+    );
+
+    const lines = out.split("\n");
+    const okLine = lines.find((l) => l.includes("con-thu-muc"));
+    const missingLine = lines.find((l) => l.includes("da-bi-xoa"));
+    expect(okLine).not.toContain("⚠️");
+    expect(missingLine).toContain("⚠️");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
 });
 
 // --- Multi-project: schema migration ---
