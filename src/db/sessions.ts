@@ -15,20 +15,21 @@ export interface Session {
   title: string;
 }
 
-export function getActiveSession(userId: number): Session | null {
+export function getActiveSession(userId: number, project: string): Session | null {
   const row = db
     .query(
       `SELECT s.* FROM sessions s
-       JOIN active_sessions a ON s.user_id = a.user_id AND s.session_id = a.session_id
-       WHERE s.user_id = ?`,
+       JOIN active_sessions a
+         ON s.user_id = a.user_id AND s.session_id = a.session_id
+       WHERE s.user_id = ? AND a.project = ?`,
     )
-    .get(userId) as any;
+    .get(userId, project) as any;
 
   if (!row) return null;
 
   const hoursSinceActive = (Date.now() - row.last_active_at) / (1000 * 60 * 60);
   if (hoursSinceActive > config.sessionTimeoutHours) {
-    clearActiveSession(userId);
+    clearActiveSession(userId, project);
     return null;
   }
 
@@ -44,6 +45,7 @@ export function getActiveSession(userId: number): Session | null {
 
 export function createSession(
   userId: number,
+  project: string,
   sessionId: string,
   title: string = "Phiên mới",
   model?: string,
@@ -59,14 +61,14 @@ export function createSession(
   };
 
   db.run(
-    `INSERT OR REPLACE INTO sessions (user_id, session_id, model, created_at, last_active_at, title)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [userId, sessionId, session.model, now, now, title],
+    `INSERT OR REPLACE INTO sessions (user_id, session_id, model, created_at, last_active_at, title, project)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [userId, sessionId, session.model, now, now, title, project],
   );
 
   db.run(
-    `INSERT OR REPLACE INTO active_sessions (user_id, session_id) VALUES (?, ?)`,
-    [userId, sessionId],
+    `INSERT OR REPLACE INTO active_sessions (user_id, project, session_id) VALUES (?, ?, ?)`,
+    [userId, project, sessionId],
   );
 
   return session;
@@ -79,16 +81,19 @@ export function touchSession(userId: number, sessionId: string): void {
   );
 }
 
-export function clearActiveSession(userId: number): void {
-  db.run(`DELETE FROM active_sessions WHERE user_id = ?`, [userId]);
+export function clearActiveSession(userId: number, project: string): void {
+  // Phải lọc theo cả project — nếu chỉ lọc user_id, xoá active session của
+  // project này sẽ xoá luôn phiên đang treo của MỌI project khác của user đó.
+  db.run(`DELETE FROM active_sessions WHERE user_id = ? AND project = ?`, [userId, project]);
 }
 
-export function getRecentSessions(userId: number, limit = 5): Session[] {
+export function getRecentSessions(userId: number, project: string, limit = 5): Session[] {
   const rows = db
     .query(
-      `SELECT * FROM sessions WHERE user_id = ? ORDER BY last_active_at DESC LIMIT ?`,
+      `SELECT * FROM sessions WHERE user_id = ? AND project = ?
+       ORDER BY last_active_at DESC LIMIT ?`,
     )
-    .all(userId, limit) as any[];
+    .all(userId, project, limit) as any[];
 
   return rows.map((row) => ({
     userId: row.user_id,
@@ -100,10 +105,10 @@ export function getRecentSessions(userId: number, limit = 5): Session[] {
   }));
 }
 
-export function setActiveSession(userId: number, sessionId: string): void {
+export function setActiveSession(userId: number, project: string, sessionId: string): void {
   db.run(
-    `INSERT OR REPLACE INTO active_sessions (user_id, session_id) VALUES (?, ?)`,
-    [userId, sessionId],
+    `INSERT OR REPLACE INTO active_sessions (user_id, project, session_id) VALUES (?, ?, ?)`,
+    [userId, project, sessionId],
   );
   touchSession(userId, sessionId);
 }

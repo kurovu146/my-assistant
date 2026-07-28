@@ -8,6 +8,7 @@ import { config } from "../config.ts";
 import { getClaudeProvider } from "../claude/provider.ts";
 import { parseModelOverride, resolveModelTier } from "../claude/router.ts";
 import { getActiveSession, createSession, touchSession } from "../db/sessions.ts";
+import { getCurrentProject } from "../db/projects.ts";
 import { logQuery } from "../db/queries.ts";
 import { splitMessage, formatUsageTotal, TOOL_ICONS } from "./formatter.ts";
 import { sanitizeResponse } from "./content-filter.ts";
@@ -263,7 +264,10 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
   };
 
   try {
-    const session = getActiveSession(userId);
+    // Lấy project hiện tại của user ngay tại đây (không dùng biến toàn cục) —
+    // mỗi request phải tự tra vì user có thể đổi project giữa các lượt nhắn.
+    const project = getCurrentProject(userId);
+    const session = getActiveSession(userId, project);
     const sessionId = session?.sessionId;
 
     const selectedModel: string | undefined = modelOverride;
@@ -307,7 +311,7 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
 
     // Lưu session (ghi model thực tế đã dùng — response.model sau failover)
     if (!session && response.sessionId) {
-      createSession(userId, response.sessionId, sessionTitle, response.model || selectedModel);
+      createSession(userId, project, response.sessionId, sessionTitle, response.model || selectedModel);
     } else if (session) {
       touchSession(userId, session.sessionId);
     }

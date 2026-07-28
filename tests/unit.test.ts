@@ -15,6 +15,7 @@ import { getUsageByPeriod, logQuery, type QueryLogEntry } from "../src/db/querie
 import { db } from "../src/db/connection.ts";
 import { config } from "../src/config.ts";
 import { normalizeProjectName, resolveProjectPath, ensureProject, listProjects, getCurrentProject, setCurrentProject } from "../src/db/projects.ts";
+import { getActiveSession, createSession, clearActiveSession, getRecentSessions } from "../src/db/sessions.ts";
 import {
   bytesToEmbedding,
   cosineSimilarity,
@@ -195,6 +196,30 @@ test("hai project giữ được hai phiên cùng lúc", () => {
     { project: "alpha", session_id: "sess-alpha" },
     { project: "beta", session_id: "sess-beta" },
   ]);
+});
+
+// --- Session lọc theo project (Task 4) ---
+
+test("session của project này không rò sang project khác", () => {
+  createSession(910, "alpha", "sess-a", "phiên alpha");
+  createSession(910, "beta", "sess-b", "phiên beta");
+
+  expect(getActiveSession(910, "alpha")?.sessionId).toBe("sess-a");
+  expect(getActiveSession(910, "beta")?.sessionId).toBe("sess-b");
+
+  // Rời alpha rồi quay lại thì phiên vẫn còn nguyên
+  clearActiveSession(910, "alpha");
+  expect(getActiveSession(910, "alpha")).toBeNull();
+  expect(getActiveSession(910, "beta")?.sessionId).toBe("sess-b");
+});
+
+test("getRecentSessions chỉ liệt kê phiên của project đang mở", () => {
+  createSession(911, "gamma", "sess-g1", "g1");
+  createSession(911, "delta", "sess-d1", "d1");
+
+  const titles = getRecentSessions(911, "gamma").map((s) => s.title);
+  expect(titles).toContain("g1");
+  expect(titles).not.toContain("d1");
 });
 
 // --- FTS5: keyword thô từng làm memory_search ném lỗi cú pháp ---

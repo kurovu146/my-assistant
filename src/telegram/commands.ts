@@ -5,6 +5,7 @@
 
 import type { Context } from "grammy";
 import { clearActiveSession, getActiveSession, getRecentSessions, setActiveSession } from "../db/sessions.ts";
+import { getCurrentProject } from "../db/projects.ts";
 import { getQueryStats, getUsageByPeriod, type PeriodUsage } from "../db/queries.ts";
 import { addMonitoredUrl, removeMonitoredUrl, getUserMonitoredUrls } from "../db/monitors.ts";
 import { getUserFacts, countFacts } from "../memory/repository.ts";
@@ -58,7 +59,8 @@ export async function handleNew(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
   if (userId === undefined) return;
 
-  clearActiveSession(userId);
+  const project = getCurrentProject(userId);
+  clearActiveSession(userId, project);
   await ctx.reply("🆕 Đã tạo phiên mới. Gửi tin nhắn để bắt đầu!");
 }
 
@@ -72,7 +74,8 @@ export async function handleResume(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
   if (userId === undefined) return;
 
-  const sessions = getRecentSessions(userId);
+  const project = getCurrentProject(userId);
+  const sessions = getRecentSessions(userId, project);
 
   if (sessions.length === 0) {
     await ctx.reply("📭 Chưa có phiên nào. Gửi tin nhắn để bắt đầu!");
@@ -108,7 +111,8 @@ export async function handleResumeCallback(ctx: Context): Promise<void> {
 
   // Tách session ID
   const sessionId = data.replace("resume:", "");
-  setActiveSession(userId, sessionId);
+  const project = getCurrentProject(userId);
+  setActiveSession(userId, project, sessionId);
 
   // Trả lời callback (xóa loading spinner trên nút)
   await ctx.answerCallbackQuery({ text: "✅ Đã resume phiên" });
@@ -123,7 +127,8 @@ export async function handleStatus(ctx: Context): Promise<void> {
   if (userId === undefined) return;
 
   const isProcessing = activeQueries.has(userId);
-  const session = getActiveSession(userId);
+  const project = getCurrentProject(userId);
+  const session = getActiveSession(userId, project);
   const uptime = formatUptime(Date.now() - botStartTime);
 
   const statusText = isProcessing
