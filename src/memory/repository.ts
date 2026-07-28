@@ -28,16 +28,25 @@ export function saveFact(
   const now = Date.now();
 
   const existing = db
-    .query(`SELECT id FROM memory_facts WHERE user_id = ? AND fact = ?`)
+    .query(`SELECT id, project FROM memory_facts WHERE user_id = ? AND fact = ?`)
     .get(userId, fact) as any;
 
   if (existing) {
-    // Cập nhật luôn project: nếu không, fact trùng text lưu lại ở project khác sẽ
-    // âm thầm giữ nguyên project cũ — record không bao giờ hiện đúng chỗ caller mới
-    // định lưu vào.
+    // CHỈ NỚI RỘNG phạm vi, không bao giờ thu hẹp.
+    //
+    // `project` ở đây do LLM đoán lại sau mỗi hội thoại, mà EXTRACT_PROMPT còn dặn
+    // thẳng "không chắc thì chọn project". Cho phép ghi đè tự do thì một fact CHUNG
+    // ("Anh thích dùng Bun") chỉ cần được trích lại nguyên văn trong hội thoại của
+    // một project là bị hạ xuống riêng của project đó — và biến mất khỏi mọi project
+    // khác, im lặng, không log. Hạ cấp phải là hành động tường minh của user.
+    //
+    // Nhảy ngang project A → B cũng bị chặn (giữ A): với người đang ở A thì đó vẫn
+    // là mất fact, còn nâng lên chung để "vừa lòng cả hai" lại rò fact riêng sang
+    // MỌI project. Giữ A là lựa chọn không mất mát và không rò.
+    const widenedProject = existing.project === null || project === null ? null : existing.project;
     db.run(
       `UPDATE memory_facts SET category = ?, source = ?, project = ?, updated_at = ? WHERE id = ?`,
-      [category, source, project, now, existing.id],
+      [category, source, widenedProject, now, existing.id],
     );
     return { id: existing.id, userId, fact, category, source, createdAt: now, updatedAt: now, lastAccessedAt: 0, accessCount: 0 };
   }

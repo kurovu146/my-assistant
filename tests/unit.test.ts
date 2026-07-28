@@ -376,18 +376,32 @@ test("getFactsByCategory chặn fact của project khác", () => {
   expect(inAlpha).not.toContain("Beta: convention naming snake_case");
 });
 
-test("saveFact cập nhật lại project khi fact trùng text được lưu ở project khác", () => {
-  // Model có thể sinh trùng câu fact ở 2 project khác nhau (vd cùng công cụ deploy).
-  // Dedupe vẫn theo (user_id, fact) như cũ, nhưng UPDATE phải dịch project theo
-  // caller mới nhất — không thì record âm thầm giữ nguyên project cũ.
+test("saveFact chỉ nới rộng phạm vi fact, không âm thầm hạ fact chung xuống project", () => {
+  // `project` do LLM đoán lại mỗi lần trích xuất, prompt còn dặn "không chắc thì
+  // chọn project" — nên UPDATE không được tin giá trị mới một cách vô điều kiện.
   const userId = 927;
-  const first = saveFact(userId, "Deploy bằng Docker Compose", "infra", "test", "alpha");
-  const second = saveFact(userId, "Deploy bằng Docker Compose", "infra", "test", "beta");
+  const projectOf = (id: number) =>
+    (db.query(`SELECT project FROM memory_facts WHERE id = ?`).get(id) as { project: string | null }).project;
 
-  expect(second.id).toBe(first.id); // vẫn 1 row, không tạo bản ghi mới
+  // 1. Fact CHUNG bị trích lại trong hội thoại của một project → phải giữ chung.
+  //    Nếu bị hạ cấp, nó biến mất khỏi mọi project khác mà không có log nào.
+  const chung = saveFact(userId, "Anh thích dùng Bun thay vì Node.js", "preference", "test", null);
+  const lai = saveFact(userId, "Anh thích dùng Bun thay vì Node.js", "preference", "test", "funlife");
+  expect(lai.id).toBe(chung.id); // vẫn 1 row, dedupe theo text không đổi
+  expect(projectOf(chung.id)).toBeNull();
+  expect(getUserFacts(userId, 50, "basotien").map((f) => f.fact)).toContain("Anh thích dùng Bun thay vì Node.js");
 
-  expect(getUserFacts(userId, 50, "alpha").map((f) => f.fact)).not.toContain("Deploy bằng Docker Compose");
-  expect(getUserFacts(userId, 50, "beta").map((f) => f.fact)).toContain("Deploy bằng Docker Compose");
+  // 2. Chiều NỚI RỘNG được phép: fact riêng lưu lại với scope global → nâng lên chung
+  const rieng = saveFact(userId, "Anh dùng PM2 để chạy bot", "infra", "test", "my-assistant");
+  expect(projectOf(rieng.id)).toBe("my-assistant");
+  saveFact(userId, "Anh dùng PM2 để chạy bot", "infra", "test", null);
+  expect(projectOf(rieng.id)).toBeNull();
+
+  // 3. Nhảy ngang alpha → beta bị chặn: với người đang ở alpha thì đó cũng là mất fact
+  const alpha = saveFact(userId, "Deploy bằng Docker Compose", "infra", "test", "alpha");
+  saveFact(userId, "Deploy bằng Docker Compose", "infra", "test", "beta");
+  expect(projectOf(alpha.id)).toBe("alpha");
+  expect(getUserFacts(userId, 50, "alpha").map((f) => f.fact)).toContain("Deploy bằng Docker Compose");
 });
 
 test("countFacts chỉ đếm fact chung + fact của project đang mở", () => {
