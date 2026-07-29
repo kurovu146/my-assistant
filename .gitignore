@@ -37,6 +37,11 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 *.db-journal
 *.db-wal
 *.db-shm
+# snapshot lấy trước khi dọn memory bằng tay — không thuộc về repo
+*.db.bak-*
+
+# thư mục làm việc của kt (kuro-lean)
+.kt/
 .telegram-uploads/
 bun.lockb
 PLAN.md
