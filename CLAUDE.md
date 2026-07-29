@@ -66,6 +66,15 @@ Khi trả lời task/vấn đề, dùng format:
 
 ## Skills system
 
-- Các file `.md` trong thư mục `skills/` được load tự động vào system prompt
-- Thêm skill mới: tạo file `.md` trong `skills/`, restart bot
-- Skills hiện tại: `godot.md`, `go-gamedev.md`, `git-workflow.md`, `database-sql.md`, `docker-devops.md`, `code-review.md`, `project-management.md`, `research.md`, `gmail.md`, `telegram-ux.md`, `security-awareness.md`
+Bot chạy trên Claude Agent SDK nên **dùng thẳng skill của Claude Code** qua tool `Skill`:
+
+- `~/.claude/skills/` — skill dùng ở mọi nơi (`telegram-ux`, `security-awareness`, `gmail`,
+  `google-sheets`, `code-review`, `database-sql`, `git-workflow`, `project-management`...)
+- `<cwd>/.claude/skills/` — skill riêng của project đang mở, ví dụ `godot` và `go-gamedev`
+  chỉ nạp khi làm việc trong repo BasoTien
+- Plugin (`superpowers:*`) — brainstorming, writing-plans, TDD...
+
+Thư mục `skills/` của repo này đã dọn trống (2026-07-29). Nó gộp file `.md` vào system
+prompt, nhưng số liệu `query_logs` cho thấy agent chưa từng đọc file nào ở đó trong khi gọi
+tool `Skill` 9 lần — một mục lục viết bằng văn xuôi không cạnh tranh nổi với tool thật.
+**Viết skill mới thì viết thành skill Claude Code**, đừng thả file vào `skills/`.

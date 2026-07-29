@@ -24,7 +24,7 @@ Personal Telegram AI bot powered by **Claude** (Agent SDK). Send messages via Te
 - **Gmail integration** — search, read, send, archive via MCP
 - **Google Sheets integration** — read, write, append via MCP
 - **News Digest** — daily news summary (HN + GitHub trending, 8am Vietnam time), or on demand via `/news`
-- **Skills system** — auto-load `.md` files, hot-reload on change
+- **Skills** — uses Claude Code skills directly (`~/.claude/skills/`, `<project>/.claude/skills/`, plugins) via the `Skill` tool
 - **Content filter** — automatically hide secrets/credentials in responses
 - **No turn or time limit** — long tasks run to completion; only `/stop` interrupts them
 - **Model selection** — `/model` persists a per-user choice, or override a single message (`use opus`, `use fast`...)
@@ -153,7 +153,7 @@ src/
 │   └── memory.ts         # Tier 2: active memory MCP tools
 └── scheduler/
     └── news-digest.ts    # Daily HN + GitHub trending digest
-skills/                   # Knowledge base (.md files, auto-loaded)
+skills/                   # Emptied — see skills/README.txt
 ```
 
 ## Commands
@@ -275,7 +275,7 @@ bun install
 2. **Customize the new instance**:
 - `.env` — change `TELEGRAM_BOT_TOKEN`, `CLAUDE_MODEL`, `CLAUDE_WORKING_DIR`
 - `CLAUDE.md` — change persona (name, pronouns, personality, owner)
-- `skills/` — add/remove skills appropriate to the persona
+- Persona-specific skills — write them to `~/.claude/skills/<name>/SKILL.md`
 - `ecosystem.config.cjs` — change `name` and add `CLAUDE_CONFIG_DIR`
 
 3. **ecosystem.config.cjs** — set env directly (PM2 env overrides `.env`):

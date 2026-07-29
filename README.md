@@ -24,7 +24,7 @@ Bot AI Telegram cá nhân, sử dụng **Claude** (Agent SDK). Gửi tin nhắn 
 - **Gmail integration** — search, read, send, archive qua MCP
 - **Google Sheets integration** — read, write, append qua MCP
 - **News Digest** — tóm tắt tin tức hàng ngày (HN + GitHub trending, 8h sáng VN) hoặc gọi ngay bằng `/news`
-- **Skills system** — tự động load file `.md`, hot-reload khi thay đổi
+- **Skills** — dùng thẳng skill của Claude Code (`~/.claude/skills/`, `<project>/.claude/skills/`, plugin) qua tool `Skill`
 - **Content filter** — tự động ẩn secrets/credentials trong response
 - **Không giới hạn turn/thời gian** — task dài chạy tới khi xong, chỉ `/stop` mới dừng được
 - **Chọn model** — `/model` lưu lựa chọn theo user, hoặc override từng tin nhắn (`dung opus`, `use fast`...)
@@ -153,7 +153,7 @@ src/
 │   └── memory.ts         # Tier 2: active memory MCP tools
 └── scheduler/
     └── news-digest.ts    # Daily HN + GitHub trending digest
-skills/                   # Knowledge base (file .md, tự động load)
+skills/                   # Đã dọn trống — xem skills/README.txt
 ```
 
 ## Lệnh bot
@@ -272,7 +272,7 @@ bun install
 2. **Customize cho instance mới**:
 - `.env` — đổi `TELEGRAM_BOT_TOKEN`, `CLAUDE_MODEL`, `CLAUDE_WORKING_DIR`
 - `CLAUDE.md` — đổi persona (tên, xưng hô, tính cách, chủ nhân)
-- `skills/` — thêm/bớt skills phù hợp với persona
+- Skill riêng cho persona — viết vào `~/.claude/skills/<tên>/SKILL.md`
 - `ecosystem.config.cjs` — đổi `name` và thêm `CLAUDE_CONFIG_DIR`
 
 3. **ecosystem.config.cjs** — set env trực tiếp (PM2 env override `.env` file):
