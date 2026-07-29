@@ -26,7 +26,7 @@ import { db } from "../src/db/connection.ts";
 import { config } from "../src/config.ts";
 import { normalizeProjectName, resolveProjectPath, ensureProject, listProjects, getCurrentProject, setCurrentProject, clearCurrentProject, getProjectCwd } from "../src/db/projects.ts";
 import { getActiveSession, createSession, clearActiveSession, getRecentSessions } from "../src/db/sessions.ts";
-import { formatProjectList, formatSkillList } from "../src/telegram/commands.ts";
+import { formatProjectList } from "../src/telegram/commands.ts";
 import { buildUploadPrompt, persistSession, resolveQueryCwd, uploadPath } from "../src/telegram/bot.ts";
 import {
   bytesToEmbedding,
@@ -1113,22 +1113,6 @@ test("model của user này không lẫn sang user khác", () => {
 });
 
 // --- /skills ---
-
-test("formatSkillList báo rõ khi chưa có skill nào", () => {
-  expect(formatSkillList([])).toContain("Chưa có skill");
-});
-
-test("formatSkillList liệt kê tên, dung lượng và mô tả", () => {
-  const text = formatSkillList([
-    { name: "godot", title: "Godot", description: "Scene & Node", filePath: "/x/godot.md", sizeBytes: 2048 },
-  ]);
-  expect(text).toContain("1 skill");
-  expect(text).toContain("godot");
-  expect(text).toContain("2.0 KB");
-  expect(text).toContain("Scene & Node");
-});
-
-// --- Agent chạy trong thư mục của project ---
 
 test("query() chạy trong thư mục của project đang mở", async () => {
   let captured: Record<string, unknown> | undefined;

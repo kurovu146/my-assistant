@@ -129,7 +129,7 @@ src/
 ├── claude/
 │   ├── provider.ts       # ClaudeProvider + getClaudeProvider() singleton
 │   ├── router.ts         # Model tier resolver (fast/balanced/powerful)
-│   ├── skills.ts         # Skills loader + hot-reload watcher
+│   ├── system-prompt.ts  # Nạp CLAUDE.md làm persona
 │   └── types.ts          # Provider interfaces
 ├── telegram/
 │   ├── bot.ts            # Message handlers, streaming UX, queue
@@ -153,7 +153,6 @@ src/
 │   └── memory.ts         # Tier 2: active memory MCP tools
 └── scheduler/
     └── news-digest.ts    # Daily HN + GitHub trending digest
-skills/                   # Đã dọn trống — xem skills/README.txt
 ```
 
 ## Lệnh bot
@@ -170,8 +169,7 @@ skills/                   # Đã dọn trống — xem skills/README.txt
 | `/memory` | Xem memory facts theo category (kèm `#id`) |
 | `/forget <id>` | Xóa 1 fact khỏi memory |
 | `/news` | Lấy digest tin công nghệ ngay, không đợi cron |
-| `/skills` | Danh sách skill đang load |
-| `/reload` | Reload skills không cần restart |
+| `/reload` | Nạp lại `CLAUDE.md` không cần restart |
 | `/stop [tên\|all]` | Dừng query: không tham số → project đang mở; `/stop <tên>` → đúng project đó; `/stop all` → tất cả |
 
 ## Multi-project

@@ -6,7 +6,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { config } from "../config.ts";
-import { buildSystemPrompt, setOnCacheClear } from "./skills.ts";
+import { buildSystemPrompt } from "./system-prompt.ts";
 import { createGmailMcpServer } from "../mcp/gmail.ts";
 import { logger } from "../logger.ts";
 import { createSheetsMcpServer } from "../mcp/sheets.ts";
@@ -112,9 +112,6 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
   constructor() {
     this.gmailMcp = createGmailMcpServer();
     this.sheetsMcp = createSheetsMcpServer();
-    setOnCacheClear(() => {
-      this.cachedSystemPrompt = null;
-    });
   }
 
   // --- Auth ---
@@ -175,11 +172,12 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
     return this.cachedSystemPrompt;
   }
 
-  // --- Skills ---
+  // --- System prompt ---
 
-  reloadSkills(): void {
+  /** Bỏ CLAUDE.md đang cache — sửa persona xong không phải restart bot. */
+  reloadSystemPrompt(): void {
     this.cachedSystemPrompt = null;
-    logger.log("🔄 Skills cache cleared — sẽ reload lần gọi tiếp theo");
+    logger.log("🔄 Đã xoá cache CLAUDE.md — nạp lại ở lượt gọi tiếp theo");
   }
 
   // --- Usage ---

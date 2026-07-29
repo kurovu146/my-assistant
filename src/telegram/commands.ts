@@ -24,7 +24,6 @@ import { countEntities } from "../memory/entities.ts";
 import { formatTokenCount, splitMessage, timeAgo, TOOL_ICONS } from "./formatter.ts";
 import { config } from "../config.ts";
 import { getClaudeProvider } from "../claude/provider.ts";
-import { getSkillCount, listSkillSummaries, type SkillMeta } from "../claude/skills.ts";
 import { parseTier, resolveModelTier, tierOfModel, TIER_LABELS, type ModelTier } from "../claude/router.ts";
 import { createNewsDigest } from "../scheduler/news-digest.ts";
 
@@ -58,8 +57,7 @@ export async function handleStart(ctx: Context): Promise<void> {
       `/memory — Xem bộ nhớ dài hạn\n` +
       `/forget <id> — Xoá 1 fact khỏi bộ nhớ\n` +
       `/news — Tin công nghệ mới nhất\n` +
-      `/skills — Skill đang load\n` +
-      `/reload — Reload skills\n\n` +
+      `/reload — Nạp lại CLAUDE.md\n\n` +
       `Gửi tin nhắn bất kỳ để bắt đầu! 🚀`,
   );
 }
@@ -275,9 +273,6 @@ export async function handleStatus(ctx: Context): Promise<void> {
   // project rỗng nghĩa là chưa /p lần nào — agent vẫn chạy ở thư mục gốc như trước đây
   const projectInfo = project ? `📁 Project: ${project}` : "📁 Project: (chưa chọn)";
 
-  // Skills count (từ cache, không đọc disk)
-  const skillInfo = `📚 Skills: ${getSkillCount()} loaded`;
-
   // Query analytics (persistent — từ SQLite)
   const stats = getQueryStats(userId);
   let statsInfo: string;
@@ -307,8 +302,7 @@ export async function handleStatus(ctx: Context): Promise<void> {
       `⏱ Uptime: ${uptime}\n\n` +
       `🤖 Model: ${describeModel(userId)}\n` +
       `🔑 Auth: ${config.authMode}\n` +
-      `${projectInfo}\n` +
-      `${skillInfo}\n\n` +
+      `${projectInfo}\n\n` +
       `${statsInfo}\n\n` +
       `${sessionInfo}`,
   );
@@ -376,11 +370,11 @@ function formatPeriod(p: PeriodUsage): string {
 
 
 /**
- * /reload — Reload skills mà không cần restart bot
+ * /reload — Nạp lại CLAUDE.md mà không cần restart bot
  */
 export async function handleReload(ctx: Context): Promise<void> {
-  getClaudeProvider().reloadSkills();
-  await ctx.reply("🔄 Skills đã được reload! Thay đổi sẽ có hiệu lực từ tin nhắn tiếp theo.");
+  getClaudeProvider().reloadSystemPrompt();
+  await ctx.reply("🔄 Đã nạp lại CLAUDE.md! Thay đổi có hiệu lực từ tin nhắn tiếp theo.");
 }
 
 /**
@@ -463,30 +457,6 @@ export async function handleNews(ctx: Context): Promise<void> {
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
     await ctx.api.editMessageText(ctx.chat!.id, msg.message_id, `❌ Lỗi lấy tin: ${errMsg}`);
-  }
-}
-
-/** Dựng chuỗi danh sách skill — tách riêng để test không cần Context của grammY */
-export function formatSkillList(skills: SkillMeta[]): string {
-  if (skills.length === 0) {
-    return "📚 Chưa có skill nào trong thư mục `skills/`.";
-  }
-
-  const lines = skills.map((s) => {
-    const kb = (s.sizeBytes / 1024).toFixed(1);
-    const desc = s.description ? `\n   ${s.description}` : "";
-    return `• ${s.name} (${kb} KB)${desc}`;
-  });
-  return `📚 ${skills.length} skill đang load:\n\n${lines.join("\n")}`;
-}
-
-/**
- * /skills — Xem danh sách skill đang load
- */
-export async function handleSkills(ctx: Context): Promise<void> {
-  const skills = await listSkillSummaries();
-  for (const part of splitMessage(formatSkillList(skills))) {
-    await ctx.reply(part);
   }
 }
 

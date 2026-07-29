@@ -129,7 +129,7 @@ src/
 ├── claude/
 │   ├── provider.ts       # ClaudeProvider + getClaudeProvider() singleton
 │   ├── router.ts         # Model tier resolver (fast/balanced/powerful)
-│   ├── skills.ts         # Skills loader + hot-reload watcher
+│   ├── system-prompt.ts  # Loads CLAUDE.md as the persona
 │   └── types.ts          # Provider interfaces
 ├── telegram/
 │   ├── bot.ts            # Message handlers, streaming UX, queue
@@ -153,7 +153,6 @@ src/
 │   └── memory.ts         # Tier 2: active memory MCP tools
 └── scheduler/
     └── news-digest.ts    # Daily HN + GitHub trending digest
-skills/                   # Emptied — see skills/README.txt
 ```
 
 ## Commands
@@ -170,8 +169,7 @@ skills/                   # Emptied — see skills/README.txt
 | `/memory` | View memory facts by category (with `#id`) |
 | `/forget <id>` | Delete one fact from memory |
 | `/news` | Fetch the tech digest now instead of waiting for the cron |
-| `/skills` | List loaded skills |
-| `/reload` | Reload skills without restart |
+| `/reload` | Reload `CLAUDE.md` without restart |
 | `/stop [name\|all]` | Abort a query: no argument → the current project; `/stop <name>` → that project; `/stop all` → every one |
 
 ## Multi-project

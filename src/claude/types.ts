@@ -64,7 +64,7 @@ export interface AgentProvider {
   checkAuth(): Promise<{ ok: boolean; message: string }>;
   query(options: AgentQueryOptions): Promise<AgentResponse>;
   getCumulativeUsage(): CumulativeUsage;
-  reloadSkills(): void;
+  reloadSystemPrompt(): void;
 }
 
 /** CompletionProvider — simple text-in/text-out (cho memory, news digest) */

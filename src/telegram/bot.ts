@@ -31,7 +31,6 @@ import {
   handleModel,
   handleModelCallback,
   handleNews,
-  handleSkills,
   handleProject,
 } from "./commands.ts";
 import {
@@ -212,7 +211,6 @@ export function createBot(): Bot {
   bot.command("memory", handleMemory);
   bot.command("forget", handleForget);
   bot.command("news", handleNews);
-  bot.command("skills", handleSkills);
 
   bot.callbackQuery(/^resume:/, handleResumeCallback);
   bot.callbackQuery(/^model:/, handleModelCallback);

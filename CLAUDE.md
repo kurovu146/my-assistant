@@ -74,7 +74,9 @@ Bot chạy trên Claude Agent SDK nên **dùng thẳng skill của Claude Code**
   chỉ nạp khi làm việc trong repo BasoTien
 - Plugin (`superpowers:*`) — brainstorming, writing-plans, TDD...
 
-Thư mục `skills/` của repo này đã dọn trống (2026-07-29). Nó gộp file `.md` vào system
+Thư mục `skills/` và bộ loader của nó đã gỡ hẳn (2026-07-29): nó gộp file `.md` vào system
 prompt, nhưng số liệu `query_logs` cho thấy agent chưa từng đọc file nào ở đó trong khi gọi
 tool `Skill` 9 lần — một mục lục viết bằng văn xuôi không cạnh tranh nổi với tool thật.
-**Viết skill mới thì viết thành skill Claude Code**, đừng thả file vào `skills/`.
+`src/claude/system-prompt.ts` giờ chỉ còn nạp file này (CLAUDE.md).
+
+**Viết skill mới → viết thành skill Claude Code**, đừng dựng lại cơ chế cũ.

@@ -17,7 +17,6 @@ import { getClaudeProvider } from "./claude/provider.ts";
 import { startMemoryConsolidation, stopMemoryConsolidation } from "./memory/consolidation.ts";
 import { backfillFactEmbeddings } from "./memory/semantic.ts";
 import { startNewsDigest, stopNewsDigest } from "./scheduler/news-digest.ts";
-import { startSkillWatcher, stopSkillWatcher } from "./claude/skills.ts";
 import { installConfirm } from "./telegram/confirm.ts";
 import type { Bot } from "grammy";
 import { logger } from "./logger.ts";
@@ -71,8 +70,7 @@ async function main() {
     { command: "memory", description: "Xem bộ nhớ dài hạn" },
     { command: "forget", description: "Xoá 1 fact khỏi bộ nhớ" },
     { command: "news", description: "Tin công nghệ mới nhất" },
-    { command: "skills", description: "Skill đang load" },
-    { command: "reload", description: "Reload skills" },
+    { command: "reload", description: "Nạp lại CLAUDE.md" },
     { command: "stop", description: "Dừng query đang chạy" },
   ]);
 
@@ -103,12 +101,9 @@ async function main() {
     startNewsDigest(sendTelegram);
   }
 
-  // 7. Start skill watcher — auto-reload khi files thay đổi
-  startSkillWatcher();
-
   logger.log("✅ Bot đã sẵn sàng! Đang lắng nghe tin nhắn...\n");
 
-  // 8. Bắt đầu polling với auto-recovery
+  // 7. Bắt đầu polling với auto-recovery
   startPollingWithRecovery(bot);
 }
 
@@ -151,7 +146,6 @@ async function shutdown() {
   logger.log("\n👋 Đang tắt bot...");
   stopMemoryConsolidation();
   stopNewsDigest();
-  stopSkillWatcher();
   if (bot) {
     await bot.stop();
   }
