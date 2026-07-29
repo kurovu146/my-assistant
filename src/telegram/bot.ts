@@ -15,6 +15,7 @@ import { logQuery } from "../db/queries.ts";
 import { splitMessage, formatUsageTotal, TOOL_ICONS } from "./formatter.ts";
 import { sanitizeResponse } from "./content-filter.ts";
 import { extractFacts } from "../memory/extraction.ts";
+import { noteTurn, reviewSkills } from "../memory/skill-review.ts";
 import { authMiddleware } from "./middleware.ts";
 import { logger } from "../logger.ts";
 import {
@@ -427,6 +428,11 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
     // Đặt ở đây nên áp dụng cho cả text, file và ảnh.
     const selectedModel: string | undefined = modelOverride || getUserModel(userId) || undefined;
 
+    // Chốt một lần: skill review chạy sau đó phải fork trên ĐÚNG cwd của phiên,
+    // vì SDK khoá transcript theo cwd — resolve lại lần hai có thể ra kết quả khác
+    // (thư mục vừa bị xoá) và fork sẽ không tìm thấy phiên để đọc.
+    const queryCwd = resolveQueryCwd(project);
+
     const response = await getClaudeProvider().query({
       prompt,
       sessionId,
@@ -448,7 +454,7 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
       abortSignal: controller.signal,
       userId,
       modelOverride: selectedModel,
-      cwd: resolveQueryCwd(project),
+      cwd: queryCwd,
       project,
     });
 
@@ -546,6 +552,24 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
       extractFacts(userId, prompt, response.text, project).catch((e) => {
         logger.error("⚠️ extractFacts error:", e instanceof Error ? e.message : e);
       });
+
+      // Tier 3: cứ N lượt fork phiên vừa xong để rút skill. Chạy SAU khi kết quả
+      // đã tới tay anh Tuấn — giống hermes-agent, review không bao giờ được
+      // tranh chỗ với câu trả lời.
+      if (noteTurn(userId, project)) {
+        reviewSkills({
+          userId,
+          sessionId: response.sessionId,
+          project,
+          cwd: queryCwd,
+          model: response.model,
+          onLearned: (summary) => {
+            safeSendMessage(ctx, `🎓 Vừa học được:\n${summary}`).catch(() => {});
+          },
+        }).catch((e) => {
+          logger.error("⚠️ reviewSkills error:", e instanceof Error ? e.message : e);
+        });
+      }
     }
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);

@@ -1536,3 +1536,118 @@ test("query đang xếp hàng không bị đếm nhầm thành đang chạy", ()
   markQueryStarted(12, "alpha", new AbortController());
   expect(listRunning(12)[0]?.waiting).toBe(false);
 });
+
+// ============================================================
+// Skill review — guard ghi file + nhịp kích hoạt
+// ============================================================
+
+import {
+  allowedSkillDirs,
+  buildSkillReviewPrompt,
+  denyReasonForWrite,
+  isInsideSkillDirs,
+  noteTurn,
+  PROVENANCE_MARKER,
+} from "../src/memory/skill-review.ts";
+
+test("isInsideSkillDirs không để thư mục có cùng tiền tố lọt qua", () => {
+  const dirs = ["/home/kuro/.claude/skills"];
+
+  expect(isInsideSkillDirs("/home/kuro/.claude/skills/go-test/SKILL.md", dirs)).toBe(true);
+  expect(isInsideSkillDirs("/home/kuro/.claude/skills", dirs)).toBe(true);
+
+  // Tiền tố trùng nhưng là thư mục khác hẳn — đây là chỗ startsWith trần sẽ sai
+  expect(isInsideSkillDirs("/home/kuro/.claude/skills-cua-anh/SKILL.md", dirs)).toBe(false);
+  // Traversal phải bị resolve ra ngoài rồi chặn
+  expect(isInsideSkillDirs("/home/kuro/.claude/skills/../../.ssh/id_rsa", dirs)).toBe(false);
+  expect(isInsideSkillDirs("/etc/passwd", dirs)).toBe(false);
+});
+
+test("denyReasonForWrite chặn ghi ngoài thư mục skill", () => {
+  const dirs = ["/skills"];
+  const noFile = () => null;
+
+  expect(denyReasonForWrite("Write", "/etc/cron.d/evil", dirs, noFile, "x")).toContain(
+    "Chỉ được ghi trong thư mục skill",
+  );
+  expect(denyReasonForWrite("Edit", undefined, dirs, noFile)).toContain("thiếu file_path");
+});
+
+test("denyReasonForWrite bảo vệ skill anh Tuấn viết tay", () => {
+  const dirs = ["/skills"];
+  const handWritten = () => "---\nname: git-workflow\ndescription: abc\n---\n# Git";
+  const generated = () => `---\nname: auto\nmetadata:\n  ${PROVENANCE_MARKER}\n---\n# Auto`;
+
+  // Không có marker → không được đụng, dù nằm đúng thư mục
+  expect(denyReasonForWrite("Edit", "/skills/git-workflow/SKILL.md", dirs, handWritten)).toContain(
+    "không phải do review sinh ra",
+  );
+
+  // Có marker → skill của chính nó, vá thoải mái
+  expect(denyReasonForWrite("Edit", "/skills/auto/SKILL.md", dirs, generated)).toBeNull();
+});
+
+test("denyReasonForWrite buộc skill mới mang marker provenance", () => {
+  const dirs = ["/skills"];
+  const noFile = () => null;
+
+  // Thiếu marker thì chính lượt review sau cũng không sửa được skill này nữa
+  expect(
+    denyReasonForWrite("Write", "/skills/moi/SKILL.md", dirs, noFile, "---\nname: moi\n---\n"),
+  ).toContain(PROVENANCE_MARKER);
+
+  expect(
+    denyReasonForWrite(
+      "Write",
+      "/skills/moi/SKILL.md",
+      dirs,
+      noFile,
+      `---\nname: moi\nmetadata:\n  ${PROVENANCE_MARKER}\n---\n`,
+    ),
+  ).toBeNull();
+
+  // File phụ (references/, scripts/) không cần marker — marker sống ở SKILL.md
+  expect(
+    denyReasonForWrite("Write", "/skills/moi/references/loi.md", dirs, () => "cũ", undefined),
+  ).toContain("không phải do review sinh ra");
+});
+
+test("noteTurn chỉ bật đúng lượt chạm ngưỡng rồi reset", () => {
+  const interval = config.skillReviewInterval;
+  const userId = 987654;
+  const project = "test-skill-review";
+
+  const fired: number[] = [];
+  for (let i = 1; i <= interval * 2; i++) {
+    if (noteTurn(userId, project)) fired.push(i);
+  }
+
+  expect(fired).toEqual([interval, interval * 2]);
+});
+
+test("noteTurn đếm riêng từng project", () => {
+  const userId = 987655;
+  // Lượt của project khác không được đẩy bộ đếm của project này lên
+  for (let i = 0; i < config.skillReviewInterval - 1; i++) noteTurn(userId, "alpha");
+  expect(noteTurn(userId, "beta")).toBe(false);
+  expect(noteTurn(userId, "alpha")).toBe(true);
+});
+
+test("prompt skill review mang đủ rào chống rác", () => {
+  const prompt = buildSkillReviewPrompt("/home/kuro/Dev/funlife");
+
+  // Bốn thứ khiến bản gốc của hermes-agent không đẻ rác
+  expect(prompt).toContain("CẤM GHI");
+  expect(prompt).toContain("Lời phủ định về tool");
+  expect(prompt).toContain("60 ký tự");
+  expect(prompt).toContain("Không có gì đáng ghi.");
+  expect(prompt).toContain(PROVENANCE_MARKER);
+
+  // Trỏ đúng vào .claude/skills của project đang mở
+  expect(prompt).toContain("/home/kuro/Dev/funlife/.claude/skills");
+});
+
+test("allowedSkillDirs gồm global và project, bỏ project khi chưa mở", () => {
+  expect(allowedSkillDirs("/repo")).toHaveLength(2);
+  expect(allowedSkillDirs()).toHaveLength(1);
+});

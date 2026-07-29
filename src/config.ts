@@ -87,4 +87,12 @@ export const config = {
   // Voyage AI — bật semantic search. Thiếu key thì memory chạy bằng FTS5 thuần.
   voyageApiKey: process.env.VOYAGE_API_KEY || "",
   voyageModel: process.env.VOYAGE_MODEL || "voyage-4-lite",
+
+  // Skill review — sau mỗi N lượt, fork phiên vừa xong để rút skill (SKILL_REVIEW=0 để tắt)
+  skillReviewEnabled: process.env.SKILL_REVIEW !== "0",
+  // 15 chứ không phải 10 như hermes-agent: mỗi lượt review là một query Opus tính
+  // vào cùng hạn mức 5h với chat, mà bot này chỉ phục vụ một người.
+  skillReviewInterval: envInt("SKILL_REVIEW_INTERVAL", 15),
+  skillReviewMaxTurns: envInt("SKILL_REVIEW_MAX_TURNS", 40),
+  skillReviewTimeoutMs: envInt("SKILL_REVIEW_TIMEOUT_MS", 5 * 60 * 1000),
 };
