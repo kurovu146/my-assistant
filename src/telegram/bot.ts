@@ -25,7 +25,6 @@ import {
   handleStatus,
   handleUsage,
   handleStop,
-  handleReload,
   handleMemory,
   handleForget,
   handleModel,
@@ -207,7 +206,6 @@ export function createBot(): Bot {
   bot.command("status", handleStatus);
   bot.command("usage", handleUsage);
   bot.command("stop", handleStop);
-  bot.command("reload", handleReload);
   bot.command("memory", handleMemory);
   bot.command("forget", handleForget);
   bot.command("news", handleNews);

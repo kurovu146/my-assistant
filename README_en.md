@@ -169,7 +169,6 @@ src/
 | `/memory` | View memory facts by category (with `#id`) |
 | `/forget <id>` | Delete one fact from memory |
 | `/news` | Fetch the tech digest now instead of waiting for the cron |
-| `/reload` | Reload `CLAUDE.md` without restart |
 | `/stop [name\|all]` | Abort a query: no argument → the current project; `/stop <name>` → that project; `/stop all` → every one |
 
 ## Multi-project

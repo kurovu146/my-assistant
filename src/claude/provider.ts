@@ -165,19 +165,18 @@ export class ClaudeProvider implements AgentProvider, CompletionProvider {
 
   // --- System prompt ---
 
+  /**
+   * CLAUDE.md, đọc một lần rồi giữ suốt đời process.
+   *
+   * Không còn đường xoá cache: sửa CLAUDE.md thì phải restart bot
+   * (`pm2 restart my-assistant`). Đánh đổi có chủ ý — persona hiếm khi đổi, không
+   * đáng giữ một lệnh Telegram chỉ để phục vụ việc đó.
+   */
   private async getSystemPrompt(): Promise<string> {
     if (this.cachedSystemPrompt === null) {
       this.cachedSystemPrompt = await buildSystemPrompt();
     }
     return this.cachedSystemPrompt;
-  }
-
-  // --- System prompt ---
-
-  /** Bỏ CLAUDE.md đang cache — sửa persona xong không phải restart bot. */
-  reloadSystemPrompt(): void {
-    this.cachedSystemPrompt = null;
-    logger.log("🔄 Đã xoá cache CLAUDE.md — nạp lại ở lượt gọi tiếp theo");
   }
 
   // --- Usage ---

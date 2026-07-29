@@ -23,7 +23,6 @@ import { countDocuments } from "../memory/knowledge.ts";
 import { countEntities } from "../memory/entities.ts";
 import { formatTokenCount, splitMessage, timeAgo, TOOL_ICONS } from "./formatter.ts";
 import { config } from "../config.ts";
-import { getClaudeProvider } from "../claude/provider.ts";
 import { parseTier, resolveModelTier, tierOfModel, TIER_LABELS, type ModelTier } from "../claude/router.ts";
 import { createNewsDigest } from "../scheduler/news-digest.ts";
 
@@ -56,8 +55,7 @@ export async function handleStart(ctx: Context): Promise<void> {
       `/usage — Token đã dùng theo kỳ\n` +
       `/memory — Xem bộ nhớ dài hạn\n` +
       `/forget <id> — Xoá 1 fact khỏi bộ nhớ\n` +
-      `/news — Tin công nghệ mới nhất\n` +
-      `/reload — Nạp lại CLAUDE.md\n\n` +
+      `/news — Tin công nghệ mới nhất\n\n` +
       `Gửi tin nhắn bất kỳ để bắt đầu! 🚀`,
   );
 }
@@ -366,15 +364,6 @@ function formatPeriod(p: PeriodUsage): string {
     `   Cache: ${formatTokenCount(p.cacheRead)} read · ${formatTokenCount(p.cacheWrite)} write\n` +
     `   Quy đổi API: $${p.costUsd.toFixed(2)}`
   );
-}
-
-
-/**
- * /reload — Nạp lại CLAUDE.md mà không cần restart bot
- */
-export async function handleReload(ctx: Context): Promise<void> {
-  getClaudeProvider().reloadSystemPrompt();
-  await ctx.reply("🔄 Đã nạp lại CLAUDE.md! Thay đổi có hiệu lực từ tin nhắn tiếp theo.");
 }
 
 /**

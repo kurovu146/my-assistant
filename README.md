@@ -169,7 +169,6 @@ src/
 | `/memory` | Xem memory facts theo category (kèm `#id`) |
 | `/forget <id>` | Xóa 1 fact khỏi memory |
 | `/news` | Lấy digest tin công nghệ ngay, không đợi cron |
-| `/reload` | Nạp lại `CLAUDE.md` không cần restart |
 | `/stop [tên\|all]` | Dừng query: không tham số → project đang mở; `/stop <tên>` → đúng project đó; `/stop all` → tất cả |
 
 ## Multi-project

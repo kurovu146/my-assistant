@@ -70,7 +70,6 @@ async function main() {
     { command: "memory", description: "Xem bộ nhớ dài hạn" },
     { command: "forget", description: "Xoá 1 fact khỏi bộ nhớ" },
     { command: "news", description: "Tin công nghệ mới nhất" },
-    { command: "reload", description: "Nạp lại CLAUDE.md" },
     { command: "stop", description: "Dừng query đang chạy" },
   ]);
 
