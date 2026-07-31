@@ -96,11 +96,21 @@ export function noteTurn(userId: number, project: string): boolean {
 
 // --- Guard: chỉ được ghi vào skill của chính nó ---
 
-/** Thư mục skill được phép ghi: global + `.claude/skills` của project đang mở. */
-export function allowedSkillDirs(cwd?: string): string[] {
-  const dirs = [GLOBAL_SKILLS_DIR];
-  if (cwd) dirs.push(resolve(cwd, ".claude", "skills"));
-  return dirs;
+/**
+ * Thư mục skill được phép ghi: CHỈ kho global.
+ *
+ * Bài học rút từ một phiên hầu như không bao giờ chỉ đúng cho đúng repo đó — cách
+ * debug, cách anh Tuấn muốn được trả lời, pattern dùng tool đều chuyển được sang
+ * project khác. Ghi vào `<project>/.claude/skills` thì bài học chết theo cwd: phiên
+ * sau mở repo khác là mất, và cùng một bài học phải học lại ở từng project.
+ *
+ * Skill riêng của project (godot, go-gamedev...) vẫn ĐỌC được để tham khảo — chỉ
+ * đường ghi là bị khoá về một chỗ.
+ *
+ * Trả mảng vì guard bên dưới nhận nhiều thư mục; hôm nay mảng đó có đúng một phần tử.
+ */
+export function allowedSkillDirs(): string[] {
+  return [GLOBAL_SKILLS_DIR];
 }
 
 /**
@@ -155,8 +165,8 @@ export function denyReasonForWrite(
 }
 
 /** Guard chạy ở tầng SDK: mọi tool ghi đều phải qua `denyReasonForWrite`. */
-function buildCanUseTool(cwd: string | undefined, onDeny: (msg: string) => void): CanUseTool {
-  const dirs = allowedSkillDirs(cwd);
+function buildCanUseTool(onDeny: (msg: string) => void): CanUseTool {
+  const dirs = allowedSkillDirs();
   const readFile = (path: string): string | null => {
     try {
       // Đọc đồng bộ: guard phải trả lời trước khi tool chạy, không có chỗ để await lười.
@@ -199,9 +209,8 @@ function buildCanUseTool(cwd: string | undefined, onDeny: (msg: string) => void)
  *   3. danh sách CẤM ghi (quan trọng nhất: cấm ghi lời phủ định về tool),
  *   4. "không có gì" là kết quả hợp lệ.
  */
-export function buildSkillReviewPrompt(cwd?: string): string {
-  const dirs = allowedSkillDirs(cwd);
-  const target = dirs.length > 1 ? dirs[1]! : dirs[0]!;
+export function buildSkillReviewPrompt(): string {
+  const target = GLOBAL_SKILLS_DIR;
 
   return `[skill-review] Đọc lại hội thoại phía trên và cập nhật thư viện skill.
 
@@ -211,6 +220,17 @@ lượt review không làm gì là một cơ hội học bị bỏ lỡ, không 
 Hình dạng mong muốn của thư viện: skill ở TẦNG LỚP VIỆC, mỗi skill một SKILL.md
 dày dặn kèm thư mục \`references/\` cho chi tiết theo phiên. KHÔNG phải một danh
 sách dài các skill hẹp kiểu mỗi-phiên-một-skill.
+
+TOÀN CỤC, KHÔNG THEO PROJECT: mọi thứ em ghi đều nằm ở ${target} và sẽ được nạp
+ở MỌI project. Trước khi viết, tự hỏi: "bài học này có còn đúng khi phiên sau mở
+một repo khác không?".
+  • Còn đúng → viết vào skill, diễn đạt ở mức chuyển được: nói về lớp việc và kỹ
+    thuật, không phải về repo hôm nay.
+  • Chỉ đúng với đúng repo này (tên bảng, hằng số nghiệp vụ, quy ước riêng của
+    codebase) → KHÔNG viết vào SKILL.md. Cùng lắm là một ví dụ minh hoạ trong
+    \`references/\`, và phải ghi rõ nó lấy từ project nào.
+Skill riêng của project (trong \`<repo>/.claude/skills\`) em ĐỌC được để tham khảo
+nhưng KHÔNG ghi vào đó — đường ghi duy nhất là ${target}.
 
 TÍN HIỆU đáng hành động (có một cái là đủ):
   • Anh Tuấn sửa cách em trả lời: giọng văn, độ dài, định dạng, cách trình bày.
@@ -226,7 +246,7 @@ TÍN HIỆU đáng hành động (có một cái là đủ):
 THỨ TỰ ƯU TIÊN — chọn hành động sớm nhất phù hợp:
   1. VÁ SKILL ĐÃ NẠP TRONG PHIÊN. Nhìn lại hội thoại xem skill nào đã được gọi qua
      tool \`Skill\`. Nếu nó phủ được phần kiến thức mới thì vá nó trước.
-  2. VÁ SKILL Ô TỔNG có sẵn. Dùng Glob/Read để tìm trong ${dirs.join(" và ")}.
+  2. VÁ SKILL Ô TỔNG có sẵn. Dùng Glob/Read để tìm trong ${target}.
      Thêm một mục, một pitfall, hoặc nới trigger.
   3. THÊM FILE PHỤ dưới skill ô tổng có sẵn:
      • \`references/<chủ-đề>.md\` — chi tiết theo phiên (log lỗi, cách tái hiện, quirk
@@ -240,6 +260,10 @@ THỨ TỰ ƯU TIÊN — chọn hành động sớm nhất phù hợp:
      với đúng task hôm nay thì nó sai — quay về (1), (2), hoặc (3).
 
 QUY TẮC VIẾT SKILL.md:
+  • NGÔN NGỮ: \`name\` và tên thư mục viết bằng TIẾNG ANH (nó là định danh, đồng bộ
+    với skill Claude Code và plugin, tránh đẻ hai skill cùng nghĩa khác tên).
+    \`description\` và toàn bộ thân bài viết TIẾNG VIỆT — anh Tuấn ra lệnh bằng tiếng
+    Việt và phải đọc lại được. Lệnh, thuật ngữ, tên API giữ nguyên tiếng Anh.
   • Frontmatter: \`name\` (chữ-thường-nối-gạch), \`description\` MỘT câu **tối đa 60 ký
     tự** kết thúc bằng dấu chấm, và \`metadata\` phải chứa đúng dòng \`${PROVENANCE_MARKER}\`.
   • Luật 60 ký tự không phải chuyện thẩm mỹ: chỉ mục skill nạp mỗi phiên cắt cụt
@@ -260,6 +284,9 @@ CẤM GHI những thứ sau — chúng hoá đá thành ràng buộc tự trói 
     retry, không phải lỗi ban đầu.
   • Tường thuật task một lần ("tóm tắt tin hôm nay", "review PR này") — không phải
     một lớp việc.
+  • Chi tiết chỉ sống trong một repo: tên file/hàm cụ thể, đường dẫn tuyệt đối tới
+    project, số liệu cân bằng game, schema bảng. Skill nằm ở kho dùng chung — nhét
+    thứ này vào là làm nhiễu mọi project còn lại. Chỗ của chúng là memory.
 Nếu một tool hỏng vì thiếu setup, hãy ghi CÁCH SỬA (lệnh cài, biến môi trường) vào
 skill setup/troubleshooting — đừng bao giờ ghi "tool này không dùng được".
 
@@ -305,7 +332,7 @@ export async function reviewSkills(options: SkillReviewOptions): Promise<void> {
 
   try {
     const stream = query({
-      prompt: buildSkillReviewPrompt(cwd),
+      prompt: buildSkillReviewPrompt(),
       options: {
         model: model || config.claudeModel,
         resume: sessionId,
@@ -321,7 +348,7 @@ export async function reviewSkills(options: SkillReviewOptions): Promise<void> {
         strictMcpConfig: true,
         mcpServers: {},
         permissionMode: "default" as const,
-        canUseTool: buildCanUseTool(cwd, (msg) => denials.push(msg)),
+        canUseTool: buildCanUseTool((msg) => denials.push(msg)),
         maxTurns: config.skillReviewMaxTurns,
         abortController: controller,
       },

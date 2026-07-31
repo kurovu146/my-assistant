@@ -74,6 +74,16 @@ Bot chạy trên Claude Agent SDK nên **dùng thẳng skill của Claude Code**
   chỉ nạp khi làm việc trong repo BasoTien
 - Plugin (`superpowers:*`) — brainstorming, writing-plans, TDD...
 
+Skill do bot **tự sinh** (Tier 3 — `src/memory/skill-review.ts`) luôn ghi vào `~/.claude/skills/`,
+không bao giờ ghi vào `.claude/skills` của project (2026-07-31): bài học rút từ một phiên
+hầu như luôn chuyển được sang repo khác, ghi theo project thì phiên sau mở repo khác là mất
+và phải học lại từ đầu. Guard `canUseTool` chặn cứng mọi đường ghi khác; skill không mang
+`generated_by: kuro-review` là do anh Tuấn viết, bot không được sửa.
+
+Quy ước ngôn ngữ của skill: `name`/tên thư mục **tiếng Anh** (định danh, đồng bộ với
+skill Claude Code và plugin), `description` + thân bài **tiếng Việt**, lệnh và thuật
+ngữ giữ tiếng Anh.
+
 Thư mục `skills/` và bộ loader của nó đã gỡ hẳn (2026-07-29): nó gộp file `.md` vào system
 prompt, nhưng số liệu `query_logs` cho thấy agent chưa từng đọc file nào ở đó trong khi gọi
 tool `Skill` 9 lần — một mục lục viết bằng văn xuôi không cạnh tranh nổi với tool thật.

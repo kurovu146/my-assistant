@@ -25,6 +25,7 @@ Bot AI Telegram cá nhân, sử dụng **Claude** (Agent SDK). Gửi tin nhắn 
 - **Google Sheets integration** — read, write, append qua MCP
 - **News Digest** — tóm tắt tin tức hàng ngày (HN + GitHub trending, 8h sáng VN) hoặc gọi ngay bằng `/news`
 - **Skills** — dùng thẳng skill của Claude Code (`~/.claude/skills/`, `<project>/.claude/skills/`, plugin) qua tool `Skill`
+- **Tự học (Tier 3)** — cứ 15 lượt lại fork phiên vừa xong để rút skill, luôn ghi vào kho toàn cục `~/.claude/skills/` nên bài học dùng được ở mọi project
 - **Content filter** — tự động ẩn secrets/credentials trong response
 - **Không giới hạn turn/thời gian** — task dài chạy tới khi xong, chỉ `/stop` mới dừng được
 - **Chọn model** — `/model` lưu lựa chọn theo user, hoặc override từng tin nhắn (`dung opus`, `use fast`...)

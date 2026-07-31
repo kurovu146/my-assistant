@@ -1545,6 +1545,7 @@ import {
   allowedSkillDirs,
   buildSkillReviewPrompt,
   denyReasonForWrite,
+  GLOBAL_SKILLS_DIR,
   isInsideSkillDirs,
   noteTurn,
   PROVENANCE_MARKER,
@@ -1634,7 +1635,7 @@ test("noteTurn đếm riêng từng project", () => {
 });
 
 test("prompt skill review mang đủ rào chống rác", () => {
-  const prompt = buildSkillReviewPrompt("/home/kuro/Dev/funlife");
+  const prompt = buildSkillReviewPrompt();
 
   // Bốn thứ khiến bản gốc của hermes-agent không đẻ rác
   expect(prompt).toContain("CẤM GHI");
@@ -1643,11 +1644,30 @@ test("prompt skill review mang đủ rào chống rác", () => {
   expect(prompt).toContain("Không có gì đáng ghi.");
   expect(prompt).toContain(PROVENANCE_MARKER);
 
-  // Trỏ đúng vào .claude/skills của project đang mở
-  expect(prompt).toContain("/home/kuro/Dev/funlife/.claude/skills");
+  // Chỉ trỏ vào kho global, và dặn viết ở mức chuyển được sang project khác
+  expect(prompt).toContain("TOÀN CỤC, KHÔNG THEO PROJECT");
+  expect(prompt).toContain(`đường ghi duy nhất là ${GLOBAL_SKILLS_DIR}`);
+
+  // Quy ước ngôn ngữ: định danh tiếng Anh, nội dung tiếng Việt
+  expect(prompt).toContain("NGÔN NGỮ");
+  expect(prompt).toContain("TIẾNG ANH");
+  expect(prompt).toContain("TIẾNG VIỆT");
 });
 
-test("allowedSkillDirs gồm global và project, bỏ project khi chưa mở", () => {
-  expect(allowedSkillDirs("/repo")).toHaveLength(2);
-  expect(allowedSkillDirs()).toHaveLength(1);
+test("allowedSkillDirs chỉ cho ghi vào kho global", () => {
+  expect(allowedSkillDirs()).toEqual([GLOBAL_SKILLS_DIR]);
+});
+
+test("guard chặn ghi vào .claude/skills của project", () => {
+  const dirs = allowedSkillDirs();
+  const noFile = () => null;
+
+  // Đây là điểm khác trước: trước kia đường này được phép ghi
+  expect(
+    denyReasonForWrite("Write", "/Users/kuro/Dev/funlife/.claude/skills/x/SKILL.md", dirs, noFile, PROVENANCE_MARKER),
+  ).toContain("Chỉ được ghi trong thư mục skill");
+
+  expect(
+    denyReasonForWrite("Write", `${GLOBAL_SKILLS_DIR}/x/SKILL.md`, dirs, noFile, PROVENANCE_MARKER),
+  ).toBeNull();
 });

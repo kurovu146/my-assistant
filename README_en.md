@@ -25,6 +25,7 @@ Personal Telegram AI bot powered by **Claude** (Agent SDK). Send messages via Te
 - **Google Sheets integration** — read, write, append via MCP
 - **News Digest** — daily news summary (HN + GitHub trending, 8am Vietnam time), or on demand via `/news`
 - **Skills** — uses Claude Code skills directly (`~/.claude/skills/`, `<project>/.claude/skills/`, plugins) via the `Skill` tool
+- **Self-improvement (Tier 3)** — every 15 turns it forks the finished session to distil skills, always writing to the global `~/.claude/skills/` so lessons apply across every project
 - **Content filter** — automatically hide secrets/credentials in responses
 - **No turn or time limit** — long tasks run to completion; only `/stop` interrupts them
 - **Model selection** — `/model` persists a per-user choice, or override a single message (`use opus`, `use fast`...)
