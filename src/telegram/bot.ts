@@ -32,6 +32,7 @@ import {
   handleModelCallback,
   handleNews,
   handleProject,
+  handleProjectCallback,
 } from "./commands.ts";
 import {
   acquireSlot,
@@ -213,6 +214,7 @@ export function createBot(): Bot {
 
   bot.callbackQuery(/^resume:/, handleResumeCallback);
   bot.callbackQuery(/^model:/, handleModelCallback);
+  bot.callbackQuery(/^proj:/, handleProjectCallback);
 
   bot.on("message:text", handleTextMessage);
   bot.on("message:document", handleDocument);
@@ -273,6 +275,42 @@ async function safeSendMessage(ctx: Context, text: string, replyTo?: number): Pr
     sent = await ctx.reply(text, extra);
   }
   if (ctx.chat?.id !== undefined) noteChatMessage(ctx.chat.id, sent.message_id);
+}
+
+/**
+ * Gửi "đang gõ…" — nuốt mọi lỗi.
+ *
+ * Chỉ báo này thuần mỹ phẩm, nhưng lời gọi trần của nó nằm NGAY ĐẦU lane nên khi
+ * Telegram trả 429 thì lỗi ném ra trước cả `handleQueryWithStreaming`: `runInLane`
+ * bắt được (process không chết) nhưng cả lượt biến mất không dấu vết, và ở phía
+ * Telegram thì y hệt bot đã tắt. Đã xảy ra thật lúc 08:14:27 ngày 02/08.
+ */
+export async function safeChatAction(ctx: Context): Promise<void> {
+  try {
+    await ctx.replyWithChatAction("typing");
+  } catch {
+    // 429/network — không đáng để đánh đổi cả lượt trả lời.
+  }
+}
+
+/**
+ * Tin tiến trình đầu tiên. Đây là tin DUY NHẤT không thể thiếu: mọi cập nhật sau
+ * đều `editMessageText` vào id của nó.
+ *
+ * Telegram giới hạn ~1 tin/giây mỗi chat và trả 429 kèm `retry after N`. Thử lại
+ * đúng một lần theo đúng N giây server yêu cầu — hết lần đó thì chịu, ném lên cho
+ * lane ghi log, vì không có messageId thì không còn đường nào báo cho anh Tuấn.
+ */
+export async function sendProgressMessage(ctx: Context, text: string) {
+  try {
+    return await ctx.reply(text);
+  } catch (err) {
+    const retryAfter = (err as { parameters?: { retry_after?: number } })?.parameters?.retry_after;
+    if (retryAfter === undefined) throw err;
+    logger.warn(`⏳ Telegram 429 — chờ ${retryAfter}s rồi gửi lại tin tiến trình`);
+    await new Promise((r) => setTimeout(r, (retryAfter + 0.5) * 1000));
+    return await ctx.reply(text);
+  }
 }
 
 // ============================================================
@@ -346,7 +384,7 @@ async function handleQueryWithStreaming(options: StreamingOptions): Promise<void
   // Typing indicator liên tục
   const typingInterval = setInterval(async () => {
     try {
-      await ctx.replyWithChatAction("typing");
+      await safeChatAction(ctx);
     } catch {}
   }, 4000);
 
@@ -608,8 +646,8 @@ async function handleTextMessage(ctx: Filter<Context, "message:text">): Promise<
   // Lane queue: chờ tin trước CỦA CÙNG PROJECT xong, max 3 tin trong queue.
   // Project khác chạy song song, không liên quan.
   runInLane(userId, project, async () => {
-    await ctx.replyWithChatAction("typing");
-    const processingMsg = await ctx.reply(`${progressHeader(project)}⏳ Đang xử lý...`);
+    await safeChatAction(ctx);
+    const processingMsg = await sendProgressMessage(ctx, `${progressHeader(project)}⏳ Đang xử lý...`);
     noteChatMessage(ctx.chat.id, processingMsg.message_id);
 
     const sessionTitle = text.length > 50 ? text.slice(0, 50) + "..." : text;
@@ -645,10 +683,10 @@ async function handleDocument(ctx: Filter<Context, "message:document">): Promise
   const project = getCurrentProject(userId);
 
   runInLane(userId, project, async () => {
-    await ctx.replyWithChatAction("typing");
+    await safeChatAction(ctx);
     // file_name là optional trong Bot API — thiếu tên vẫn phải xử lý được
     const safeName = sanitizeFilename(doc.file_name || `file_${Date.now()}`);
-    const processingMsg = await ctx.reply(`${progressHeader(project)}📄 Đang tải file ${safeName}...`);
+    const processingMsg = await sendProgressMessage(ctx, `${progressHeader(project)}📄 Đang tải file ${safeName}...`);
     const chatId = ctx.chat.id;
     const msgId = processingMsg.message_id;
     noteChatMessage(chatId, msgId);
@@ -710,8 +748,8 @@ async function handlePhoto(ctx: Filter<Context, "message:photo">): Promise<void>
   const project = getCurrentProject(userId);
 
   runInLane(userId, project, async () => {
-    await ctx.replyWithChatAction("typing");
-    const processingMsg = await ctx.reply(`${progressHeader(project)}🖼 Đang tải ảnh...`);
+    await safeChatAction(ctx);
+    const processingMsg = await sendProgressMessage(ctx, `${progressHeader(project)}🖼 Đang tải ảnh...`);
     const chatId = ctx.chat.id;
     const msgId = processingMsg.message_id;
     noteChatMessage(chatId, msgId);

@@ -164,36 +164,79 @@ export function denyReasonForWrite(
   return null;
 }
 
-/** Guard chạy ở tầng SDK: mọi tool ghi đều phải qua `denyReasonForWrite`. */
-function buildCanUseTool(onDeny: (msg: string) => void): CanUseTool {
-  const dirs = allowedSkillDirs();
-  const readFile = (path: string): string | null => {
-    try {
-      // Đọc đồng bộ: guard phải trả lời trước khi tool chạy, không có chỗ để await lười.
-      const fs = require("fs") as typeof import("fs");
-      return fs.readFileSync(path, "utf8");
-    } catch {
-      return null;
-    }
+/** Đọc đồng bộ: guard phải trả lời trước khi tool chạy, không có chỗ để await lười. */
+function readFileSyncOrNull(path: string): string | null {
+  try {
+    const fs = require("fs") as typeof import("fs");
+    return fs.readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Lý do chặn một lời gọi tool của fork, hoặc `null` nếu cho qua.
+ * Dùng chung cho cả hook lẫn `canUseTool` để hai lớp không bao giờ lệch luật nhau.
+ */
+export function guardToolCall(toolName: string, input: Record<string, unknown>): string | null {
+  if (REVIEW_DENIED_TOOLS.includes(toolName)) {
+    return `Tool ${toolName} bị cấm trong skill review`;
+  }
+  if (toolName === "Write" || toolName === "Edit") {
+    const filePath = typeof input.file_path === "string" ? input.file_path : undefined;
+    const content = typeof input.content === "string" ? input.content : undefined;
+    return denyReasonForWrite(toolName, filePath, allowedSkillDirs(), readFileSyncOrNull, content);
+  }
+  return null;
+}
+
+/**
+ * Guard THẬT SỰ chặn được: `PreToolUse` hook.
+ *
+ * `canUseTool` bên dưới từng là lớp duy nhất và nó **không hề chạy** — SDK cảnh báo
+ * `CLAUDE_SDK_CAN_USE_TOOL_SHADOWED` 11 lần: mọi entry auto-approve (cả `allowedTools`
+ * truyền ở đây lẫn `permissions.allow` trong ~/.claude/settings.json, nơi có sẵn
+ * "Read"/"Write"/"Edit" trần) đều duyệt tool TRƯỚC khi callback được hỏi. Nghĩa là suốt
+ * thời gian đó fork review ghi được ra bất kỳ đâu. Hook thì chạy trước bước phân giải
+ * quyền nên `deny` ở đây không ai qua mặt được.
+ */
+export function buildGuardHook(onDeny: (msg: string) => void) {
+  return {
+    PreToolUse: [
+      {
+        hooks: [
+          async (input: unknown) => {
+            const { tool_name, tool_input } = input as {
+              tool_name?: string;
+              tool_input?: Record<string, unknown>;
+            };
+            const reason = guardToolCall(tool_name ?? "", tool_input ?? {});
+            if (reason) {
+              onDeny(reason);
+              return {
+                hookSpecificOutput: {
+                  hookEventName: "PreToolUse" as const,
+                  permissionDecision: "deny" as const,
+                  permissionDecisionReason: reason,
+                },
+              };
+            }
+            return { continue: true };
+          },
+        ],
+      },
+    ],
   };
+}
 
+/** Lớp hai, phòng khi hook không chạy trên một bản SDK nào đó. */
+function buildCanUseTool(onDeny: (msg: string) => void): CanUseTool {
   return async (toolName, input): Promise<PermissionResult> => {
-    if (REVIEW_DENIED_TOOLS.includes(toolName)) {
-      const msg = `Tool ${toolName} bị cấm trong skill review`;
-      onDeny(msg);
-      return { behavior: "deny", message: msg };
+    const reason = guardToolCall(toolName, input);
+    if (reason) {
+      onDeny(reason);
+      return { behavior: "deny", message: reason };
     }
-
-    if (toolName === "Write" || toolName === "Edit") {
-      const filePath = typeof input.file_path === "string" ? input.file_path : undefined;
-      const content = typeof input.content === "string" ? input.content : undefined;
-      const reason = denyReasonForWrite(toolName, filePath, dirs, readFile, content);
-      if (reason) {
-        onDeny(reason);
-        return { behavior: "deny", message: reason };
-      }
-    }
-
     return { behavior: "allow" };
   };
 }
@@ -340,14 +383,17 @@ export async function reviewSkills(options: SkillReviewOptions): Promise<void> {
         // của anh Tuấn không bị chèn thêm lượt review nào.
         forkSession: true,
         cwd: cwd || config.claudeWorkingDir,
-        // `tools` mới cắt thật bộ tool; `allowedTools` chỉ là danh sách auto-approve.
+        // `tools` cắt thật bộ tool. KHÔNG truyền `allowedTools`: nó chỉ auto-approve,
+        // mà mọi entry auto-approve đều vô hiệu hoá `canUseTool` — đúng lỗi
+        // CLAUDE_SDK_CAN_USE_TOOL_SHADOWED làm guard nằm im suốt 11 lượt review.
         tools: REVIEW_TOOLS,
-        allowedTools: REVIEW_TOOLS,
         disallowedTools: REVIEW_DENIED_TOOLS,
         // Chặn MCP server của máy (.mcp.json, plugin) lọt vào fork.
         strictMcpConfig: true,
         mcpServers: {},
         permissionMode: "default" as const,
+        // Hai lớp cùng luật: hook là lớp chặn thật, canUseTool là lưới dự phòng.
+        hooks: buildGuardHook((msg) => denials.push(msg)),
         canUseTool: buildCanUseTool((msg) => denials.push(msg)),
         maxTurns: config.skillReviewMaxTurns,
         abortController: controller,
