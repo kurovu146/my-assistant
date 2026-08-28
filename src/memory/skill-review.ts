@@ -284,8 +284,10 @@ THỨ TỰ ƯU TIÊN — chọn hành động sớm nhất phù hợp:
 QUY TẮC VIẾT SKILL.md:
   • NGÔN NGỮ: \`name\` và tên thư mục viết bằng TIẾNG ANH (nó là định danh, đồng bộ
     với skill Claude Code và plugin, tránh đẻ hai skill cùng nghĩa khác tên).
-    \`description\` và toàn bộ thân bài viết TIẾNG VIỆT — anh Tuấn ra lệnh bằng tiếng
-    Việt và phải đọc lại được. Lệnh, thuật ngữ, tên API giữ nguyên tiếng Anh.
+    \`description\` CŨNG viết TIẾNG ANH: nó là dòng quyết định skill có tự kích hoạt
+    đúng lúc hay không, và hiện chưa có cách đo thoái hoá. Chỉ THÂN BÀI viết TIẾNG VIỆT —
+    anh Tuấn ra lệnh bằng tiếng Việt và phải đọc lại được. Lệnh, thuật ngữ, tên API giữ
+    nguyên tiếng Anh.
   • Frontmatter: \`name\` (chữ-thường-nối-gạch), \`description\` **tối đa 100 ký tự**
     kết thúc bằng dấu chấm, và \`metadata\` phải chứa đúng dòng \`${PROVENANCE_MARKER}\`.
   • Luật 100 ký tự là chuyện NGÂN SÁCH, không phải giới hạn kỹ thuật. Description KHÔNG
