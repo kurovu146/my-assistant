@@ -1684,7 +1684,7 @@ test("prompt skill review mang đủ rào chống rác", () => {
   // Bốn thứ khiến bản gốc của hermes-agent không đẻ rác
   expect(prompt).toContain("CẤM GHI");
   expect(prompt).toContain("Lời phủ định về tool");
-  expect(prompt).toContain("60 ký tự");
+  expect(prompt).toContain("100 ký tự");
   expect(prompt).toContain("Không có gì đáng ghi.");
   expect(prompt).toContain(PROVENANCE_MARKER);
 

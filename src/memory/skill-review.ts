@@ -286,11 +286,13 @@ QUY TẮC VIẾT SKILL.md:
     với skill Claude Code và plugin, tránh đẻ hai skill cùng nghĩa khác tên).
     \`description\` và toàn bộ thân bài viết TIẾNG VIỆT — anh Tuấn ra lệnh bằng tiếng
     Việt và phải đọc lại được. Lệnh, thuật ngữ, tên API giữ nguyên tiếng Anh.
-  • Frontmatter: \`name\` (chữ-thường-nối-gạch), \`description\` MỘT câu **tối đa 60 ký
-    tự** kết thúc bằng dấu chấm, và \`metadata\` phải chứa đúng dòng \`${PROVENANCE_MARKER}\`.
-  • Luật 60 ký tự không phải chuyện thẩm mỹ: chỉ mục skill nạp mỗi phiên cắt cụt
-    description ở ký tự thứ 60, phần thừa bị bỏ âm thầm và skill sẽ không bao giờ
-    được định tuyến tới. Viết xong hãy ĐẾM ký tự, quá thì cắt.
+  • Frontmatter: \`name\` (chữ-thường-nối-gạch), \`description\` **tối đa 100 ký tự**
+    kết thúc bằng dấu chấm, và \`metadata\` phải chứa đúng dòng \`${PROVENANCE_MARKER}\`.
+  • Luật 100 ký tự là chuyện NGÂN SÁCH, không phải giới hạn kỹ thuật. Description KHÔNG
+    bị cắt cụt — đo ngày 28/08/2026 cho thấy chi phí token tỉ lệ thẳng với độ dài
+    (~3,6 ký tự/token, từ 48 tới 584 ký tự, không có ngưỡng nào). Nhưng nó nằm trong
+    context của MỌI phiên, nên dài thêm là cả 64 skill cùng trả giá. 100 ký tự đủ nêu
+    "làm gì + khi nào dùng"; dài hơn thì đẩy xuống thân bài. Viết xong hãy ĐẾM ký tự.
   • Thân bài: tiêu đề, 2-3 câu mở (làm gì / KHÔNG làm gì), "## Khi nào dùng",
     "## Cách làm" (các bước kèm lệnh copy-paste được), "## Bẫy", "## Kiểm chứng".
   • Chỉ viết lệnh/đường dẫn/API đã THẤY THẬT trong hội thoại. Không bịa cờ, không
