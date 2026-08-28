@@ -270,6 +270,8 @@ THỨ TỰ ƯU TIÊN — chọn hành động sớm nhất phù hợp:
   0. NÉN TRƯỚC KHI THÊM. Skill sắp vá đã quá 400 dòng thì việc ĐẦU TIÊN là đưa nó
      xuống dưới trần, rồi mới ghi thứ mới vào. Đây không phải việc dọn để dành lúc
      rảnh: vòng này chỉ biết thêm, nên không ai làm thì không bao giờ được làm.
+     Đã nén 2 lần rồi (\`metadata.compactions: 2\`) thì TÁCH, đừng nén lần 3 — luật đầy
+     đủ ở mục HẠN MỨC 2 LẦN bên dưới.
   1. VÁ SKILL ĐÃ NẠP TRONG PHIÊN. Nhìn lại hội thoại xem skill nào đã được gọi qua
      tool \`Skill\`. Nếu nó phủ được phần kiến thức mới thì vá nó trước.
   2. VÁ SKILL Ô TỔNG có sẵn. Dùng Glob/Read để tìm trong ${target}.
@@ -309,6 +311,21 @@ QUY TẮC VIẾT SKILL.md:
     (b) hai mục nói cùng một luật → GỘP thành một, giữ ví dụ mạnh hơn.
     Ngày 28/08/2026 làm đúng cách này: \`test-effectiveness\` 1099 → 337 dòng,
     \`subagent-orchestration\` 776 → 358, không mất một dòng nội dung nào.
+  • ĐẾM SỐ LẦN NÉN. Nén xong PHẢI tăng \`metadata.compactions\` trong frontmatter (chưa
+    có khoá đó thì ghi \`compactions: 1\`). Cổng \`check-skills.sh\` đọc số này.
+  • HẠN MỨC 2 LẦN, RỒI TÁCH — KHÔNG NÉN LẦN 3. Nén lần 1 dời ca cụ thể xuống
+    \`references/\`, thân bài còn luật. Nén lần 2 là nén chính phần luật đó. Lần 3 chỉ còn
+    khẩu hiệu chung chung: skill LOÃNG ra và mất đúng thứ làm nó hữu ích.
+    Nên khi \`compactions\` đã là 2 mà skill lại chạm trần 400 dòng, đó KHÔNG phải tín hiệu
+    nén nữa — nó có nghĩa skill đang ôm quá nhiều lớp việc. Hãy TÁCH:
+      (a) đường cắt đã có sẵn: mỗi nhóm trong \`references/\` là một lớp việc riêng. Chọn
+          nhóm nào đứng vững một mình.
+      (b) skill mới: tên và \`description\` tiếng Anh, \`metadata\` có \`${PROVENANCE_MARKER}\`
+          và KHÔNG ghi \`compactions\` (nó chưa nén lần nào).
+      (c) skill cũ giữ 1-2 dòng nói lớp việc đó đã chuyển sang skill mới, kèm tên skill —
+          để phiên sau tìm được, đừng để nó biến mất im lặng.
+    Tách sai còn tệ hơn nén: nếu không tìm được đường cắt nào đứng vững một mình thì DỪNG,
+    đừng chẻ bừa, và nói rõ trong câu trả lời cuối để anh Tuấn quyết.
   • ĐỌC TRƯỚC KHI ĐÁNH SỐ. Thêm mục vào danh sách đánh số thì đọc số lớn nhất đang có.
     Không đọc thì sinh ra hai mục cùng tên "Bẫy 20" — đã xảy ra thật.
   • Thân bài: tiêu đề, 2-3 câu mở (làm gì / KHÔNG làm gì), "## Khi nào dùng",
