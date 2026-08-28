@@ -1824,3 +1824,84 @@ test("safeChatAction không tự gọi chính nó (bẫy đệ quy)", async () =
   );
   expect(depth).toBe(1);
 });
+
+// ============================================================
+// Stop hook — skill review cho phiên Claude Code CLI
+// ============================================================
+
+import {
+  parseHookPayload,
+  shouldReview,
+  acquireLock,
+} from "../scripts/skill-review-hook.ts";
+
+const CLI_ENV = { CLAUDE_CODE_ENTRYPOINT: "cli" };
+const CLI_PAYLOAD = { session_id: "abc-123", cwd: "/Users/kuro/Dev/funlife" };
+
+test("hook chạy review khi là phiên Claude Code CLI thật", () => {
+  // `() => true` thay cho existsSync thật: test không được xanh/đỏ theo việc máy
+  // này có đang tồn tại thư mục nào đó hay không
+  expect(shouldReview(CLI_ENV, CLI_PAYLOAD, () => true).run).toBe(true);
+});
+
+test("hook không chạy trong phiên SDK (bot Telegram và chính fork review)", () => {
+  // settingSources bỏ trống → SDK nạp ~/.claude/settings.json, nên hook này CŨNG
+  // chạy trong bot và trong fork do chính nó đẻ ra. Chặn ở đây là chặn đệ quy.
+  const decision = shouldReview({ CLAUDE_CODE_ENTRYPOINT: "sdk-ts" }, CLI_PAYLOAD);
+  expect(decision.run).toBe(false);
+  expect(decision.reason).toContain("SDK");
+});
+
+test("hook không chạy khi đã ở trong tiến trình review (đai an toàn thứ hai)", () => {
+  const env = { ...CLI_ENV, KURO_SKILL_REVIEW: "1" };
+  expect(shouldReview(env, CLI_PAYLOAD).run).toBe(false);
+});
+
+test("hook không chạy khi stop_hook_active — tránh vòng lặp Stop", () => {
+  const decision = shouldReview(CLI_ENV, { ...CLI_PAYLOAD, stop_hook_active: true });
+  expect(decision.run).toBe(false);
+});
+
+test("hook không chạy khi thiếu session_id — không có transcript để fork", () => {
+  expect(shouldReview(CLI_ENV, { cwd: "/tmp" }).run).toBe(false);
+});
+
+test("parseHookPayload trả null khi stdin không phải JSON", () => {
+  expect(parseHookPayload("không-phải-json")).toBeNull();
+  expect(parseHookPayload("")).toBeNull();
+  expect(parseHookPayload('{"session_id":"x"}')?.session_id).toBe("x");
+});
+
+test("acquireLock chặn hai lượt review chạy chồng nhau", () => {
+  const dir = mkdtempSync(join(tmpdir(), "kuro-lock-"));
+  const lock = join(dir, "review.lock");
+  try {
+    expect(acquireLock(lock, 60_000)).toBe(true);
+    // Lượt thứ hai tới ngưỡng khi lượt trước còn đang chạy → phải bị chặn
+    expect(acquireLock(lock, 60_000)).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("acquireLock cướp được lock cũ khi tiến trình trước đã chết", () => {
+  const dir = mkdtempSync(join(tmpdir(), "kuro-lock-"));
+  const lock = join(dir, "review.lock");
+  try {
+    expect(acquireLock(lock, 60_000)).toBe(true);
+    // Tiến trình trước bị kill giữa chừng, lock không ai dọn: quá hạn thì phải
+    // cướp được, nếu không skill review chết vĩnh viễn sau một lần crash
+    expect(acquireLock(lock, 60_000, Date.now() + 120_000)).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("hook bỏ qua review khi thư mục của phiên đã biến mất", () => {
+  // Đo được bằng tay: spawn Claude Code với cwd không tồn tại thì binary chết ngay
+  // và SDK báo nhầm thành lỗi libc ("binary exists but failed to launch"), rất khó
+  // lần ra. Mà fork cũng vô nghĩa: transcript được tìm theo slug của cwd.
+  const decision = shouldReview(CLI_ENV, { ...CLI_PAYLOAD, cwd: "/da-bi-xoa" }, () => false);
+  expect(decision.run).toBe(false);
+  expect(decision.reason).toContain("thư mục");
+});

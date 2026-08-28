@@ -84,6 +84,23 @@ Quy ước ngôn ngữ của skill: `name`/tên thư mục **tiếng Anh** (đ�
 skill Claude Code và plugin), `description` + thân bài **tiếng Việt**, lệnh và thuật
 ngữ giữ tiếng Anh.
 
+Từ 2026-08-04, **phiên Claude Code CLI cũng tự rút skill** như bot, qua `Stop` hook khai
+báo ở `~/.claude/settings.json` → `scripts/skill-review-hook.ts`. Hook đếm lượt theo cwd
+rồi đẻ tiến trình nền gọi lại chính `reviewSkills()`; kết quả ghi vào
+`~/.claude/skill-review.log`, không báo gì ra phiên. Ba điều làm được việc này:
+
+- Agent SDK **fork được transcript do CLI ghi** (`resume: <session_id>` + `forkSession`,
+  cùng `cwd`) — nên không phải tự parse `~/.claude/projects/<slug>/*.jsonl`.
+- Chặn đệ quy bằng `CLAUDE_CODE_ENTRYPOINT`: SDK đặt `sdk-ts`, CLI thật đặt `cli`. Bắt
+  buộc phải chặn vì SDK bỏ trống `settingSources` là nạp HẾT settings — không lọc thì mỗi
+  lượt bot trả lời cũng gọi hook, và fork review lại đẻ fork review.
+- Hook phải tự nạp `.env` của my-assistant: nó chạy với cwd của repo khác, mà `config.ts`
+  `process.exit(1)` khi thiếu `TELEGRAM_BOT_TOKEN`.
+
+Bẫy đã trả giá: spawn Claude Code với `cwd` không tồn tại thì binary chết ngay và SDK báo
+nhầm thành lỗi libc (`binary exists but failed to launch`) — `shouldReview` kiểm tra thư
+mục còn sống trước khi chạy.
+
 Thư mục `skills/` và bộ loader của nó đã gỡ hẳn (2026-07-29): nó gộp file `.md` vào system
 prompt, nhưng số liệu `query_logs` cho thấy agent chưa từng đọc file nào ở đó trong khi gọi
 tool `Skill` 9 lần — một mục lục viết bằng văn xuôi không cạnh tranh nổi với tool thật.

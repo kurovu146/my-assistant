@@ -161,7 +161,7 @@ src/
 | Lệnh | Mô tả |
 |------|-------|
 | `/start` | Giới thiệu bot |
-| `/p [tên]` | Xem danh sách project, hoặc chuyển sang project (tạo nếu chưa có). `/p -` để thoát project |
+| `/p [tên]` | Không tham số → menu nút bấm chọn project; `/p <tên>` chuyển thẳng (tạo nếu chưa có); `/p -` thoát project |
 | `/new` | Tạo phiên mới |
 | `/resume` | Tiếp tục phiên cũ (5 phiên gần nhất) |
 | `/model [tier]` | Xem/đổi model. Không tham số → menu nút bấm; `/model opus` đổi thẳng; `/model reset` về mặc định |
@@ -191,7 +191,7 @@ làm việc khác rồi quay lại thì mạch cũ vẫn còn.
   đó đã trôi lên trên thì bot gửi thêm một dòng `✅ [tên] xong` ở cuối chat, reply tới nó.
 - `/status` liệt kê project đang chạy kèm số giây; `/p` đánh dấu ⏳ cạnh project bận.
 
-- `/p` — xem project đang có
+- `/p` — menu nút bấm chọn project (12 project gần nhất, kèm ▸ chỗ đang đứng, ⏳ đang chạy, ⚠️ lệch thư mục)
 - `/p <tên>` — chuyển sang project, tự tạo nếu chưa có
 - `/p -` — thoát project, về trò chuyện chung: thư mục gốc, chỉ thấy fact chung, và fact
   mới rút ra được lưu dạng chung nên dùng lại được ở mọi project (cũng nhận `none`, `chung`)

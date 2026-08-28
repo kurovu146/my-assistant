@@ -26,7 +26,6 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { CanUseTool, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import { homedir } from "os";
 import { resolve, sep } from "path";
-import { db } from "../db/connection.ts";
 import { config } from "../config.ts";
 import { logger } from "../logger.ts";
 
@@ -52,47 +51,11 @@ const REVIEW_DENIED_TOOLS = ["Bash", "Task", "Agent", "WebFetch", "WebSearch", "
 
 // --- Đếm nhịp ---
 //
-// Lưu ở db_meta thay vì biến trong process: bot restart bằng `pm2 restart`
-// khá thường xuyên, đếm trong RAM thì mỗi lần restart lại lùi bộ đếm về 0 và
-// review gần như không bao giờ tới ngưỡng.
+// Ở turn-counter.ts, không phải ở đây: Stop hook của Claude Code cần đếm lượt mà
+// không phải nạp SDK. Re-export để bot.ts và test cũ vẫn `import { noteTurn }`
+// từ file này như trước.
 
-function turnKey(userId: number, project: string): string {
-  return `skill_review_turns:${userId}:${project}`;
-}
-
-function readTurns(key: string): number {
-  const row = db.query(`SELECT value FROM db_meta WHERE key = ?`).get(key) as
-    | { value: string }
-    | undefined;
-  const n = Number(row?.value ?? 0);
-  return Number.isFinite(n) && n >= 0 ? n : 0;
-}
-
-function writeTurns(key: string, value: number): void {
-  db.run(
-    `INSERT INTO db_meta (key, value) VALUES (?, ?)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    [key, String(value)],
-  );
-}
-
-/**
- * Ghi nhận một lượt vừa xong. Trả `true` đúng lượt chạm ngưỡng (và reset bộ đếm).
- *
- * Đếm theo (user, project) chứ không đếm chung: mỗi project là một phiên riêng,
- * gộp bộ đếm lại thì review của project này bị kích hoạt bởi lượt của project kia
- * và fork sẽ đọc nhầm transcript.
- */
-export function noteTurn(userId: number, project: string): boolean {
-  const key = turnKey(userId, project);
-  const next = readTurns(key) + 1;
-  if (next >= config.skillReviewInterval) {
-    writeTurns(key, 0);
-    return true;
-  }
-  writeTurns(key, next);
-  return false;
-}
+export { noteTurn } from "./turn-counter.ts";
 
 // --- Guard: chỉ được ghi vào skill của chính nó ---
 
@@ -347,7 +310,8 @@ Cuối cùng, trả lời NGẮN (tối đa 3 dòng): đã vá/tạo skill nào 
 // --- Chạy review ---
 
 export interface SkillReviewOptions {
-  userId: number;
+  /** Nguồn gọi review — id Telegram, hoặc `"cc"` cho phiên Claude Code CLI. Chỉ để log. */
+  userId: number | string;
   /** Session vừa kết thúc — fork từ đây để có đủ ngữ cảnh hội thoại */
   sessionId: string;
   project: string;

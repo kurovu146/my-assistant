@@ -161,7 +161,7 @@ src/
 | Command | Description |
 |---------|-------------|
 | `/start` | Bot introduction |
-| `/p [name]` | List projects, or switch to one (created on first use). `/p -` leaves the current project |
+| `/p [name]` | No argument → button menu to pick a project; `/p <name>` switches directly (created on first use); `/p -` leaves the current project |
 | `/new` | Start a new session |
 | `/resume` | Resume a previous session (last 5) |
 | `/model [tier]` | View/change model. No argument → button menu; `/model opus` switches directly; `/model reset` restores the default |
@@ -192,7 +192,7 @@ progress: hand `funlife` a task, `/p my-assistant`, keep typing — both run at 
   line at the bottom replying to it.
 - `/status` lists running projects with elapsed seconds; `/p` marks busy ones with ⏳.
 
-- `/p` — list projects
+- `/p` — button menu to pick a project (12 most recent, with ▸ where you stand, ⏳ running, ⚠️ directory mismatch)
 - `/p <name>` — switch to a project, creating it on first use
 - `/p -` — leave the current project: root working directory, only global facts, and newly
   extracted facts are stored as global so they apply everywhere (`none`, `chung` also work)

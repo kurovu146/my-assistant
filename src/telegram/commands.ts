@@ -130,64 +130,139 @@ export async function handleResumeCallback(ctx: Context): Promise<void> {
   await ctx.reply("🔄 Đã tiếp tục phiên trước. Gửi tin nhắn để tiếp!");
 }
 
-/**
- * Dựng chuỗi danh sách project — tách riêng khỏi handler để test được
- * mà không cần giả lập Context của grammY.
- */
-export function formatProjectList(
-  projects: (Project & { sessionCount: number })[],
-  current: string,
-  // Tham số tuỳ chọn cho test hermetic (trỏ vào thư mục tạm) — mặc định dùng
-  // đúng baseDir thật mà agent chạy.
-  baseDir: string = config.claudeWorkingDir,
-  // Project đang có query chạy. Truyền vào thay vì tự tra để hàm này không phụ
-  // thuộc state toàn cục của lanes.ts khi test.
-  running: Set<string> = new Set(),
-): string {
-  if (projects.length === 0) {
-    return "📁 Chưa có project nào.\n\nGõ `/p <tên>` để tạo, ví dụ: `/p my-assistant`";
-  }
-
-  const lines = projects.map((p) => {
-    const mark = p.name === current ? "▸" : " ";
-    const busy = running.has(p.name) ? " ⏳" : "";
-    // ⚠️ = thư mục làm việc đã chốt (`p.path`, chính là cwd của agent) không còn
-    // khớp với thư mục riêng của project trên đĩa. Hai trường hợp đều phải bắt:
-    //   1. Chốt vào baseDir vì lúc tạo project chưa có thư mục riêng — kể cả khi
-    //      thư mục đó xuất hiện sau, cwd vẫn giữ nguyên (cố ý: đổi cwd giết phiên).
-    //      Check theo `p.path` đơn thuần lọt case này vì baseDir luôn tồn tại.
-    //   2. Thư mục đã chốt bị xoá sau đó.
-    const own = resolveProjectPath(p.name, baseDir);
-    const warn = own.exists && own.path === p.path ? "" : " ⚠️";
-    return `${mark} ${p.name} — ${p.sessionCount} phiên · ${timeAgo(p.lastUsedAt)}${busy}${warn}`;
-  });
-  // Không project nào được đánh dấu ▸ thì phải nói thẳng, nếu không anh nhìn
-  // danh sách mà không biết mình đang đứng ở đâu.
-  const footer = current ? "" : "\n  (đang ở: không project)";
-  const legend = running.size > 0 ? "\n\n⏳ = đang chạy (vẫn chạy tiếp khi anh /p đi chỗ khác)" : "";
-  return `📁 Project đang có:\n${lines.join("\n")}${footer}${legend}`;
-}
-
 /** Đối số của /p mang nghĩa "thoát project, về trò chuyện chung". */
 const EXIT_PROJECT_ARGS = new Set(["-", "none", "chung", "reset"]);
 
+/** Tiền tố callback_data của nút chọn project. */
+const PROJECT_CALLBACK_PREFIX = "proj:";
+
+/** Bấm hết một màn hình điện thoại là quá đủ; còn lại gõ `/p <tên>`. */
+const MAX_PROJECT_BUTTONS = 12;
+
 /**
- * /p — xem danh sách project; /p <tên> — chuyển (tạo nếu chưa có); /p - — thoát project
+ * `callback_data` của Telegram tối đa 64 **byte**, mà tên project được phép dài
+ * 64 ký tự — cộng tiền tố là tràn. Trả null khi không nhét vừa, caller bỏ nút đó
+ * đi (vẫn chuyển được bằng `/p <tên>`).
+ */
+export function projectCallbackData(name: string): string | null {
+  const data = PROJECT_CALLBACK_PREFIX + name;
+  return Buffer.byteLength(data, "utf8") <= 64 ? data : null;
+}
+
+/**
+ * Nhãn một project trên nút bấm.
+ *
+ * ⚠️ = thư mục làm việc đã chốt (`p.path`, chính là cwd của agent) không còn khớp
+ * với thư mục riêng của project trên đĩa. Hai trường hợp đều phải bắt:
+ *   1. Chốt vào baseDir vì lúc tạo project chưa có thư mục riêng — kể cả khi thư
+ *      mục đó xuất hiện sau, cwd vẫn giữ nguyên (cố ý: đổi cwd giết phiên). Check
+ *      theo `p.path` đơn thuần lọt case này vì baseDir luôn tồn tại.
+ *   2. Thư mục đã chốt bị xoá sau đó.
+ */
+export function projectButtonLabel(
+  p: Project & { sessionCount: number },
+  current: string,
+  running: Set<string>,
+  // Tham số tuỳ chọn cho test hermetic (trỏ vào thư mục tạm) — mặc định dùng
+  // đúng baseDir thật mà agent chạy.
+  baseDir: string = config.claudeWorkingDir,
+): string {
+  const mark = p.name === current ? "▸ " : "";
+  const busy = running.has(p.name) ? " ⏳" : "";
+  const own = resolveProjectPath(p.name, baseDir);
+  const warn = own.exists && own.path === p.path ? "" : " ⚠️";
+  return `${mark}${p.name} · ${p.sessionCount} phiên · ${timeAgo(p.lastUsedAt)}${busy}${warn}`;
+}
+
+/**
+ * Dòng đầu của bảng chọn project.
+ *
+ * Luôn nói thẳng đang đứng ở đâu: bàn phím không có nút nào mang dấu ▸ khi anh ở
+ * ngoài project, nhìn vào không biết mình đang ở đâu nếu header im lặng.
+ */
+export function buildProjectHeader(current: string, runningCount: number, hiddenCount: number): string {
+  let header = `📁 Đang ở: ${current || "(không project)"}`;
+  if (runningCount > 0) header += `\n⏳ = đang chạy (vẫn chạy tiếp khi anh /p đi chỗ khác)`;
+  if (hiddenCount > 0) header += `\n… và ${hiddenCount} project cũ hơn — gõ /p <tên> để tới`;
+  return header;
+}
+
+/**
+ * Dựng bàn phím chọn project — tách riêng khỏi handler để test được mà không cần
+ * giả lập Context của grammY. Mỗi project một hàng cho dễ bấm trên điện thoại.
+ */
+export function buildProjectKeyboard(
+  projects: (Project & { sessionCount: number })[],
+  current: string,
+  running: Set<string> = new Set(),
+  baseDir: string = config.claudeWorkingDir,
+): { text: string; callback_data: string }[][] {
+  const rows = projects
+    .slice(0, MAX_PROJECT_BUTTONS)
+    .map((p) => ({ p, data: projectCallbackData(p.name) }))
+    .filter((x): x is { p: (typeof projects)[number]; data: string } => x.data !== null)
+    .map(({ p, data }) => [{ text: projectButtonLabel(p, current, running, baseDir), callback_data: data }]);
+
+  // Chỉ có đường ra khi đang ở trong một project nào đó.
+  if (current) {
+    rows.push([{ text: "🏠 Thoát project (trò chuyện chung)", callback_data: `${PROJECT_CALLBACK_PREFIX}-` }]);
+  }
+  return rows;
+}
+
+/**
+ * /p — hiện danh sách project dạng nút bấm
+ * /p <tên> — chuyển thẳng, tạo mới nếu chưa có
+ * /p -     — thoát project, về trò chuyện chung
  */
 export async function handleProject(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
   if (userId === undefined) return;
 
   const arg = (ctx.match as string | undefined)?.trim() ?? "";
-
-  if (!arg) {
-    const running = new Set(listRunning(userId).map((r) => r.project));
-    await ctx.reply(
-      formatProjectList(listProjects(), getCurrentProject(userId), config.claudeWorkingDir, running),
-    );
+  if (arg) {
+    await switchProject(ctx, userId, arg);
     return;
   }
 
+  const projects = listProjects();
+  if (projects.length === 0) {
+    await ctx.reply("📁 Chưa có project nào.\n\nGõ `/p <tên>` để tạo, ví dụ: `/p my-assistant`", {
+      parse_mode: "Markdown",
+    });
+    return;
+  }
+
+  const current = getCurrentProject(userId);
+  const running = new Set(listRunning(userId).map((r) => r.project));
+  const keyboard = buildProjectKeyboard(projects, current, running);
+  // Nút chỉ hiện MAX_PROJECT_BUTTONS project gần nhất — phần đuôi vẫn gõ tay được.
+  const hidden = Math.max(0, projects.length - MAX_PROJECT_BUTTONS);
+
+  await ctx.reply(`${buildProjectHeader(current, running.size, hidden)}\n\nChọn project:`, {
+    reply_markup: { inline_keyboard: keyboard },
+  });
+}
+
+/** Xử lý khi anh bấm nút project từ /p */
+export async function handleProjectCallback(ctx: Context): Promise<void> {
+  const userId = ctx.from?.id;
+  if (userId === undefined) return;
+
+  const data = ctx.callbackQuery?.data;
+  if (!data?.startsWith(PROJECT_CALLBACK_PREFIX)) return;
+
+  const name = data.slice(PROJECT_CALLBACK_PREFIX.length);
+  // Trả lời callback trước để nút hết quay, kể cả khi switchProject mất vài giây.
+  await ctx.answerCallbackQuery();
+  await switchProject(ctx, userId, name);
+}
+
+/**
+ * Chuyển sang project (tạo nếu chưa có), hoặc thoát project khi `arg` là "-".
+ * Dùng chung cho `/p <tên>` và nút bấm — hai đường vào phải cho ra đúng một hành vi.
+ */
+async function switchProject(ctx: Context, userId: number, arg: string): Promise<void> {
   if (EXIT_PROJECT_ARGS.has(arg.toLowerCase())) {
     clearCurrentProject(userId);
     await ctx.reply(
