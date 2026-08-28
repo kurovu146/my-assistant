@@ -90,9 +90,14 @@ export const config = {
 
   // Skill review — sau mỗi N lượt, fork phiên vừa xong để rút skill (SKILL_REVIEW=0 để tắt)
   skillReviewEnabled: process.env.SKILL_REVIEW !== "0",
-  // 15 chứ không phải 10 như hermes-agent: mỗi lượt review là một query Opus tính
-  // vào cùng hạn mức 5h với chat, mà bot này chỉ phục vụ một người.
-  skillReviewInterval: envInt("SKILL_REVIEW_INTERVAL", 15),
+  // 10 lượt (trước là 15) — anh Tuấn chốt 25/08/2026, muốn học dày hơn. Đánh đổi đã
+  // biết: mỗi lượt review là một query Opus tính vào cùng hạn mức 5h với chat.
+  //
+  // Đổi mặc định chứ không đặt SKILL_REVIEW_INTERVAL trong .env, để giá trị đúng
+  // theo mặc định ở mọi đường gọi. `.env` vẫn ghi đè được cho cả hai đường: bot pm2
+  // do Bun nạp theo cwd, phiên Claude Code CLI do `loadProjectEnv()` trong
+  // scripts/skill-review-hook.ts tự parse (Bun không nạp .env của repo khác cwd).
+  skillReviewInterval: envInt("SKILL_REVIEW_INTERVAL", 10),
   skillReviewMaxTurns: envInt("SKILL_REVIEW_MAX_TURNS", 40),
   skillReviewTimeoutMs: envInt("SKILL_REVIEW_TIMEOUT_MS", 5 * 60 * 1000),
 };
