@@ -240,8 +240,9 @@ CHỦ ĐỘNG lên: phần lớn phiên làm việc đều để lại ít nhấ
 lượt review không làm gì là một cơ hội học bị bỏ lỡ, không phải kết quả trung tính.
 
 Hình dạng mong muốn của thư viện: skill ở TẦNG LỚP VIỆC, mỗi skill một SKILL.md
-dày dặn kèm thư mục \`references/\` cho chi tiết theo phiên. KHÔNG phải một danh
-sách dài các skill hẹp kiểu mỗi-phiên-một-skill.
+GỌN (dưới 400 dòng) chứa LUẬT, kèm thư mục \`references/\` giữ ca cụ thể. KHÔNG phải
+một danh sách dài các skill hẹp kiểu mỗi-phiên-một-skill, cũng KHÔNG phải một file
+khổng lồ kể lại mọi phiên đã gặp.
 
 TOÀN CỤC, KHÔNG THEO PROJECT: mọi thứ em ghi đều nằm ở ${target} và sẽ được nạp
 ở MỌI project. Trước khi viết, tự hỏi: "bài học này có còn đúng khi phiên sau mở
@@ -266,6 +267,9 @@ TÍN HIỆU đáng hành động (có một cái là đủ):
   • Một skill đã được nạp trong phiên hoá ra sai, thiếu bước, hoặc lỗi thời — vá NGAY.
 
 THỨ TỰ ƯU TIÊN — chọn hành động sớm nhất phù hợp:
+  0. NÉN TRƯỚC KHI THÊM. Skill sắp vá đã quá 400 dòng thì việc ĐẦU TIÊN là đưa nó
+     xuống dưới trần, rồi mới ghi thứ mới vào. Đây không phải việc dọn để dành lúc
+     rảnh: vòng này chỉ biết thêm, nên không ai làm thì không bao giờ được làm.
   1. VÁ SKILL ĐÃ NẠP TRONG PHIÊN. Nhìn lại hội thoại xem skill nào đã được gọi qua
      tool \`Skill\`. Nếu nó phủ được phần kiến thức mới thì vá nó trước.
   2. VÁ SKILL Ô TỔNG có sẵn. Dùng Glob/Read để tìm trong ${target}.
@@ -295,6 +299,18 @@ QUY TẮC VIẾT SKILL.md:
     (~3,6 ký tự/token, từ 48 tới 584 ký tự, không có ngưỡng nào). Nhưng nó nằm trong
     context của MỌI phiên, nên dài thêm là cả 64 skill cùng trả giá. 100 ký tự đủ nêu
     "làm gì + khi nào dùng"; dài hơn thì đẩy xuống thân bài. Viết xong hãy ĐẾM ký tự.
+  • NGÂN SÁCH THÂN BÀI: SKILL.md tối đa **400 dòng**. Trần cứng — cổng
+    \`scripts/check-skills.sh\` trong repo kuro đỏ nếu vượt. Con số lấy từ phân bố thật
+    của 64 skill (trung vị 151, p90 319), không phải ước lượng.
+  • NÉN = DỜI, KHÔNG XOÁ. Không bao giờ vứt một bài học đã học được. Cách nén:
+    (a) ca cụ thể dài quá ~25 dòng (phiên nào, log gì, mutation nào) → chuyển NGUYÊN VĂN
+        xuống \`references/<chủ-đề>.md\`, gom theo CƠ CHẾ chứ không theo thứ tự gặp;
+        thân bài giữ 1-3 dòng: luật + dấu hiệu nhận biết + dòng trỏ file.
+    (b) hai mục nói cùng một luật → GỘP thành một, giữ ví dụ mạnh hơn.
+    Ngày 28/08/2026 làm đúng cách này: \`test-effectiveness\` 1099 → 337 dòng,
+    \`subagent-orchestration\` 776 → 358, không mất một dòng nội dung nào.
+  • ĐỌC TRƯỚC KHI ĐÁNH SỐ. Thêm mục vào danh sách đánh số thì đọc số lớn nhất đang có.
+    Không đọc thì sinh ra hai mục cùng tên "Bẫy 20" — đã xảy ra thật.
   • Thân bài: tiêu đề, 2-3 câu mở (làm gì / KHÔNG làm gì), "## Khi nào dùng",
     "## Cách làm" (các bước kèm lệnh copy-paste được), "## Bẫy", "## Kiểm chứng".
   • Chỉ viết lệnh/đường dẫn/API đã THẤY THẬT trong hội thoại. Không bịa cờ, không
