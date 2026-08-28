@@ -1588,6 +1588,26 @@ test("isInsideSkillDirs không để thư mục có cùng tiền tố lọt qua"
   expect(isInsideSkillDirs("/etc/passwd", dirs)).toBe(false);
 });
 
+test("GLOBAL_SKILLS_DIR trỏ vào repo kuro, không phải thư mục skill trần", () => {
+  // Skill do fork review sinh ra phải rơi vào repo git. Trỏ vào ~/.claude/skills như trước
+  // thì file rơi ra ngoài version control, và bước "vá skill có sẵn" glob một thư mục gần
+  // như rỗng nên luôn TẠO MỚI thay vì vá — hỏng âm thầm, log vẫn in "🎓 Học được".
+  expect(GLOBAL_SKILLS_DIR).toBe(resolve(homedir(), ".claude", "skills", "kuro", "skills"));
+});
+
+test("guard vẫn chặn ghi ra ngoài thư mục skill của repo", () => {
+  const dirs = allowedSkillDirs();
+  const inside = resolve(homedir(), ".claude", "skills", "kuro", "skills", "code-review", "SKILL.md");
+  const siblingPrefix = resolve(homedir(), ".claude", "skills", "kuro", "skills-cua-anh", "x.md");
+  const oldLooseDir = resolve(homedir(), ".claude", "skills", "code-review", "SKILL.md");
+
+  expect(isInsideSkillDirs(inside, dirs)).toBe(true);
+  // Cùng tiền tố chuỗi nhưng khác thư mục — phải bị chặn
+  expect(isInsideSkillDirs(siblingPrefix, dirs)).toBe(false);
+  // Thư mục skill trần cũ, nay nằm NGOÀI repo — cũng phải bị chặn
+  expect(isInsideSkillDirs(oldLooseDir, dirs)).toBe(false);
+});
+
 test("denyReasonForWrite chặn ghi ngoài thư mục skill", () => {
   const dirs = ["/skills"];
   const noFile = () => null;
@@ -1703,7 +1723,10 @@ test("guard chặn ghi vào .claude/skills của project", () => {
 import { buildGuardHook, guardToolCall } from "../src/memory/skill-review.ts";
 import { homedir } from "os";
 
-const SKILL_OK = `${homedir()}/.claude/skills/abc/SKILL.md`;
+// Đường dẫn hợp lệ phải nằm trong repo plugin kuro. Trước 2026-08-28 đây là
+// `~/.claude/skills/abc/SKILL.md`; sau khi 64 skill dời vào `kuro/skills/`, đường dẫn cũ
+// nằm NGOÀI vùng ghi cho phép và guard chặn đúng — fixture phải đi theo.
+const SKILL_OK = `${homedir()}/.claude/skills/kuro/skills/abc/SKILL.md`;
 
 test("guardToolCall chặn tool ngoài danh sách cho phép", () => {
   expect(guardToolCall("Bash", { command: "rm -rf /" })).toContain("bị cấm");

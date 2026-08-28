@@ -31,8 +31,24 @@ import { logger } from "../logger.ts";
 
 // --- Hằng số ---
 
-/** Skill dùng ở mọi project */
-export const GLOBAL_SKILLS_DIR = resolve(homedir(), ".claude", "skills");
+/**
+ * Skill dùng ở mọi project — nay là thư mục `skills/` bên trong repo git `kuro`.
+ *
+ * Trước đây trỏ thẳng `~/.claude/skills`. Đổi 2026-08-28 khi 64 skill được gom vào plugin
+ * `kuro@skills-dir`: repo git nằm ngay tại `~/.claude/skills/kuro`, nên skill fork review
+ * sinh ra rơi thẳng vào version control — `git status` thấy ngay nó vừa sửa gì. Đây là lần
+ * đầu tiên anh Tuấn ĐỌC được diff của những gì vòng tự học viết.
+ *
+ * Không sửa dòng này thì hỏng ÂM THẦM: fork vẫn chạy, log vẫn in "🎓 Học được", nhưng file
+ * rơi ra ngoài repo; tệ hơn, bước "vá skill ô tổng có sẵn" glob một thư mục gần như rỗng nên
+ * LUÔN TẠO MỚI thay vì vá, đẻ skill trùng chủ đề dần theo tuần.
+ *
+ * Ghi đè được bằng env `KURO_SKILLS_DIR` cho cả hai đường gọi: bot pm2 do Bun nạp .env theo
+ * cwd, phiên Claude Code CLI do `loadProjectEnv()` trong scripts/skill-review-hook.ts tự parse.
+ */
+export const GLOBAL_SKILLS_DIR = resolve(
+  process.env.KURO_SKILLS_DIR || resolve(homedir(), ".claude", "skills", "kuro", "skills"),
+);
 
 /**
  * Dấu provenance trong frontmatter SKILL.md.
